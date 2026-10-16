@@ -1,0 +1,19 @@
+# PHP/runtime secrets and local-only overrides
+/backend-php/.env
+/backend-php/.env.*
+!/backend-php/.env.example
+/backend-php/config/local.php
+*.pem
+*.key
+*.p12
+
+# User-uploaded content: keep rules, never commit real reports/photos
+/backend-php/uploads/*
+!/backend-php/uploads/.htaccess
+!/backend-php/uploads/.gitkeep
+
+# Local editor and operating-system files
+.DS_Store
+Thumbs.db
+/.idea/
+/.vscode/

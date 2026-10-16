@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Smart Waste — Portal Warga</title>
+    <meta
+      name="description"
+      content="Portal warga Smart Waste untuk membuat dan memantau laporan sampah."
+    />
+    <meta name="theme-color" content="#167c6a" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="css/style.css?v=20260927" />
+  </head>
+  <body>
+    <div id="toast" class="toast" role="status"></div>
+
+    <section id="auth-screen" class="auth-screen">
+      <div class="auth-art" aria-hidden="true">
+        <div class="auth-orbit orbit-one"></div>
+        <div class="auth-orbit orbit-two"></div>
+        <div class="auth-leaf leaf-one">✦</div>
+        <div class="auth-leaf leaf-two">✧</div>
+        <div class="auth-art-copy">
+          <div class="brand-mark brand-mark-light">↻</div>
+          <span class="eyebrow">SMART WASTE / PORTAL WARGA</span>
+          <h1>Lingkungan rapi,<br /><em>dimulai dari laporan kecil.</em></h1>
+          <p>
+            Laporkan sampah di sekitarmu dan pantau prosesnya sampai selesai
+            dari satu tempat.
+          </p>
+          <div class="trust-row">
+            <span>✓ Terhubung ke petugas</span><span>✓ Status transparan</span>
+          </div>
+        </div>
+        <div class="auth-wave"></div>
+      </div>
+      <div class="auth-panel">
+        <div class="auth-mobile-brand">
+          <div class="brand-mark">↻</div>
+          <b>Smart Waste</b>
+        </div>
+        <div class="auth-heading">
+          <span class="eyebrow">SELAMAT DATANG</span>
+          <h2 id="auth-title">Masuk ke akunmu</h2>
+          <p id="auth-subtitle">Pantau laporan kebersihan di sekitar kamu.</p>
+        </div>
+
+        <div class="auth-tabs" role="tablist">
+          <button id="show-login" class="auth-tab is-active" type="button">
+            Masuk
+          </button>
+          <button id="show-register" class="auth-tab" type="button">
+            Buat akun
+          </button>
+        </div>
+
+        <form id="login-form" class="auth-form">
+          <label
+            >Username atau email
+            <input
+              id="login-identity"
+              autocomplete="username"
+              placeholder="contoh: user"
+              required
+            />
+          </label>
+          <label
+            >Password
+            <span class="password-field"
+              ><input
+                id="login-password"
+                type="password"
+                autocomplete="current-password"
+                placeholder="Masukkan password"
+                required
+              /><button
+                class="password-toggle"
+                type="button"
+                data-target="login-password"
+                aria-label="Tampilkan password"
+              >
+                ○
+              </button></span
+            >
+          </label>
+          <p id="login-message" class="form-message" role="alert"></p>
+          <button class="primary-button full" type="submit">
+            <span>Masuk ke portal</span><b>→</b>
+          </button>
+          <p class="demo-hint">
+            Demo user: <strong>user</strong> / <strong>12345</strong>
+          </p>
+        </form>
+
+        <form id="register-form" class="auth-form" hidden>
+          <label
+            >Nama lengkap
+            <input
+              id="register-name"
+              autocomplete="name"
+              placeholder="Nama kamu"
+              required
+            />
+          </label>
+          <label
+            >Username
+            <input
+              id="register-username"
+              autocomplete="username"
+              placeholder="Minimal 3 karakter"
+              required
+            />
+          </label>
+          <label
+            >Email <span class="optional">opsional</span>
+            <input
+              id="register-email"
+              type="email"
+              autocomplete="email"
+              placeholder="nama@email.com"
+            />
+          </label>
+          <label
+            >Password
+            <span class="password-field"
+              ><input
+                id="register-password"
+                type="password"
+                autocomplete="new-password"
+                placeholder="Minimal 5 karakter"
+                required
+              /><button
+                class="password-toggle"
+                type="button"
+                data-target="register-password"
+                aria-label="Tampilkan password"
+              >
+                ○
+              </button></span
+            >
+          </label>
+          <p id="register-message" class="form-message" role="alert"></p>
+          <button class="primary-button full" type="submit">
+            <span>Simpan akun user</span><b>→</b>
+          </button>
+        </form>
+
+        <p class="auth-footnote">
+          Akun admin hanya dapat digunakan melalui aplikasi Android.
+        </p>
+      </div>
+    </section>
+
+    <div id="app-shell" class="app-shell" hidden>
+      <header class="topbar">
+        <a class="brand" href="#dashboard" data-page-link="dashboard"
+          ><span class="brand-mark">↻</span
+          ><span><b>Smart Waste</b><small>Portal warga</small></span></a
+        >
+        <nav class="main-nav" aria-label="Navigasi utama">
+          <button
+            class="nav-item is-active"
+            data-page-link="dashboard"
+            type="button"
+          >
+            <span>⌂</span> Ringkasan
+          </button>
+          <button class="nav-item" data-page-link="reports" type="button">
+            <span>＋</span> Laporan saya
+          </button>
+          <button class="nav-item" data-page-link="profile" type="button">
+            <span>◯</span> Profil
+          </button>
+        </nav>
+        <div class="topbar-actions">
+          <span class="live-pill"><i></i> Sinkron aktif</span>
+          <button id="user-menu" class="user-chip" type="button">
+            <span id="user-initial">U</span
+            ><span id="user-short-name">User</span><b>⌄</b>
+          </button>
+          <button
+            id="logout-button"
+            class="icon-button logout-button"
+            type="button"
+            title="Keluar"
+          >
+            ↗
+          </button>
+        </div>
+        <button
+          id="mobile-menu"
+          class="icon-button mobile-menu"
+          type="button"
+          aria-label="Buka navigasi"
+        >
+          ☰
+        </button>
+      </header>
+
+      <main class="page-wrap">
+        <section id="page-dashboard" class="page is-active">
+          <div class="welcome-hero">
+            <div class="hero-copy">
+              <span class="eyebrow">PORTAL WARGA / HARI INI</span>
+              <h1>
+                Hai, <span id="hero-name">User</span>
+                <span class="wave-emoji">👋</span>
+              </h1>
+              <p>
+                Terima kasih sudah ikut menjaga lingkungan. Satu laporanmu
+                membantu kota bergerak lebih cepat.
+              </p>
+              <button
+                class="primary-button"
+                data-page-link="reports"
+                type="button"
+              >
+                <span>+ Buat laporan baru</span><b>→</b>
+              </button>
+            </div>
+            <div class="hero-illustration" aria-hidden="true">
+              <div class="sun"></div>
+              <div class="hill hill-back"></div>
+              <div class="hill hill-front"></div>
+              <div class="hero-bin">♻</div>
+              <div class="hero-spark spark-a">✦</div>
+              <div class="hero-spark spark-b">•</div>
+            </div>
+          </div>
+
+          <div class="section-heading">
+            <div>
+              <span class="eyebrow">PERJALANAN LAPORAN</span>
+              <h2>Ringkasan aktivitasmu</h2>
+            </div>
+            <button class="text-button" data-page-link="reports" type="button">
+              Lihat semua <b>→</b>
+            </button>
+          </div>
+          <div class="stats-grid">
+            <article class="stat-card stat-total">
+              <div class="stat-icon">▤</div>
+              <span>Total laporan</span><strong id="stat-total">0</strong
+              ><small>Semua laporan yang kamu kirim</small>
+            </article>
+            <article class="stat-card stat-waiting">
+              <div class="stat-icon">◷</div>
+              <span>Menunggu verifikasi</span
+              ><strong id="stat-waiting">0</strong
+              ><small>Segera dicek admin</small>
+            </article>
+            <article class="stat-card stat-process">
+              <div class="stat-icon">↗</div>
+              <span>Sedang diproses</span><strong id="stat-process">0</strong
+              ><small>Dalam penanganan petugas</small>
+            </article>
+            <article class="stat-card stat-done">
+              <div class="stat-icon">✓</div>
+              <span>Sudah selesai</span><strong id="stat-done">0</strong
+              ><small>Dampak baik yang tercipta</small>
+            </article>
+          </div>
+
+          <div class="dashboard-lower">
+            <article class="surface-card recent-card">
+              <div class="card-heading">
+                <div>
+                  <span class="eyebrow">UPDATE TERBARU</span>
+                  <h3>Laporan terakhir</h3>
+                </div>
+                <span class="soft-label" id="last-sync">Baru saja</span>
+              </div>
+              <div id="recent-list" class="report-list compact-list"></div>
+            </article>
+            <article class="surface-card flow-card">
+              <div class="card-heading">
+                <div>
+                  <span class="eyebrow">CARA KERJA</span>
+                  <h3>Dari laporan ke aksi</h3>
+                </div>
+                <span class="flow-orb">✦</span>
+              </div>
+              <div class="mini-flow">
+                <div><b>01</b><span>Kirim laporan</span></div>
+                <i>→</i>
+                <div><b>02</b><span>Admin verifikasi</span></div>
+                <i>→</i>
+                <div><b>03</b><span>Petugas bergerak</span></div>
+              </div>
+              <div class="tip-box">
+                <span>♧</span>
+                <p>
+                  <strong>Tips laporan lebih cepat diproses</strong
+                  ><br />Tambahkan foto yang jelas dan lokasi yang mudah
+                  ditemukan.
+                </p>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section id="page-reports" class="page">
+          <div class="page-heading">
+            <div>
+              <span class="eyebrow">RUANG LAPORAN</span>
+              <h1>Laporan sampahmu</h1>
+              <p>Kirim laporan baru dan pantau perkembangannya dari sini.</p>
+            </div>
+            <div class="heading-accent">♻</div>
+          </div>
+          <div class="reports-layout">
+            <article class="surface-card report-form-card">
+              <div class="card-heading">
+                <div>
+                  <span class="eyebrow">LAPORAN BARU</span>
+                  <h2>Jelaskan kondisi di lapangan</h2>
+                </div>
+                <span class="form-step">01 / 01</span>
+              </div>
+              <form id="report-form" class="report-form">
+                <div class="form-grid">
+                  <label
+                    >Jenis sampah<select id="report-type" required>
+                      <option value="">Pilih jenis</option>
+                      <option>Organik</option>
+                      <option>Plastik</option>
+                      <option>Kertas</option>
+                      <option>Logam</option>
+                      <option>Kaca</option>
+                      <option>Elektronik</option>
+                      <option>Lainnya</option>
+                    </select></label
+                  ><label
+                    >Perkiraan berat <span class="optional">opsional</span>
+                    <div class="suffix-input">
+                      <input
+                        id="report-weight"
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        placeholder="0"
+                      /><span>kg</span>
+                    </div></label
+                  >
+                </div>
+                <label
+                  >Lokasi kejadian<input
+                    id="report-location"
+                    placeholder="Contoh: depan gerbang sekolah"
+                    required /></label
+                ><button
+                  id="use-location"
+                  class="outline-button location-button"
+                  type="button"
+                >
+                  ⌖ Gunakan lokasi saya</button
+                ><label
+                  >Foto sampah <span class="optional">maks. 5 MB</span
+                  ><input
+                    id="report-photo"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                  /><span id="photo-name" class="file-hint"
+                    >Belum ada foto dipilih</span
+                  ></label
+                >
+                <div id="photo-preview" class="photo-preview" hidden></div>
+                <label
+                  >Deskripsi singkat
+                  <textarea
+                    id="report-description"
+                    rows="4"
+                    placeholder="Ceritakan kondisi sampah dan patokan lokasinya..."
+                  ></textarea></label
+                ><label
+                  >Tanggal laporan<input id="report-date" type="date" required
+                /></label>
+                <p id="report-message" class="form-message" role="alert"></p>
+                <button class="primary-button" type="submit">
+                  <span>Kirim laporan</span><b>→</b>
+                </button>
+              </form>
+            </article>
+            <aside class="surface-card history-card">
+              <div class="card-heading">
+                <div>
+                  <span class="eyebrow">RIWAYAT</span>
+                  <h2>Semua laporan</h2>
+                </div>
+                <button
+                  id="refresh-reports"
+                  class="icon-button"
+                  type="button"
+                  title="Muat ulang"
+                >
+                  ↻
+                </button>
+              </div>
+              <div class="filter-row">
+                <button
+                  class="filter-button is-active"
+                  data-filter="all"
+                  type="button"
+                >
+                  Semua</button
+                ><button
+                  class="filter-button"
+                  data-filter="menunggu_verifikasi"
+                  type="button"
+                >
+                  Menunggu</button
+                ><button
+                  class="filter-button"
+                  data-filter="diproses"
+                  type="button"
+                >
+                  Diproses</button
+                ><button
+                  class="filter-button"
+                  data-filter="selesai"
+                  type="button"
+                >
+                  Selesai
+                </button>
+              </div>
+              <div id="reports-list" class="report-list"></div>
+            </aside>
+          </div>
+        </section>
+
+        <section id="page-profile" class="page">
+          <div class="page-heading">
+            <div>
+              <span class="eyebrow">AKUN SAYA</span>
+              <h1>Profil user</h1>
+              <p>Pastikan data kontakmu tetap terbaru.</p>
+            </div>
+            <div class="heading-accent">◯</div>
+          </div>
+          <div class="profile-layout">
+            <article class="surface-card profile-card">
+              <div class="profile-cover">
+                <div id="profile-initial" class="profile-avatar">U</div>
+                <div>
+                  <span class="eyebrow">AKUN TERDAFTAR</span>
+                  <h2 id="profile-display-name">User Smart Waste</h2>
+                  <p id="profile-display-username">@user</p>
+                </div>
+              </div>
+              <form id="profile-form" class="settings-form">
+                <label>Nama lengkap<input id="profile-name" required /></label
+                ><label
+                  >Email<input
+                    id="profile-email"
+                    type="email"
+                    placeholder="nama@email.com" /></label
+                ><label>Username<input id="profile-username" disabled /></label>
+                <p id="profile-message" class="form-message" role="alert"></p>
+                <button class="primary-button" type="submit">
+                  <span>Simpan perubahan</span><b>✓</b>
+                </button>
+              </form>
+            </article>
+            <article class="surface-card password-card">
+              <div class="card-heading">
+                <div>
+                  <span class="eyebrow">KEAMANAN</span>
+                  <h2>Ganti password</h2>
+                </div>
+                <span class="security-icon">⌁</span>
+              </div>
+              <form id="password-form" class="settings-form">
+                <label
+                  >Password lama<input
+                    id="old-password"
+                    type="password"
+                    required /></label
+                ><label
+                  >Password baru<input
+                    id="new-password"
+                    type="password"
+                    minlength="5"
+                    required
+                /></label>
+                <p id="password-message" class="form-message" role="alert"></p>
+                <button class="outline-button" type="submit">
+                  Perbarui password <b>→</b>
+                </button>
+              </form>
+              <div class="security-note">
+                Password baru minimal 5 karakter. Setelah diganti, kamu perlu
+                login kembali.
+              </div>
+            </article>
+          </div>
+        </section>
+      </main>
+      <footer class="app-footer">
+        <span>Smart Waste</span><span>Menjaga lingkungan, bersama-sama.</span
+        ><span id="footer-year"></span>
+      </footer>
+    </div>
+
+    <div id="report-modal" class="modal" hidden>
+      <div class="modal-backdrop" data-close-modal></div>
+      <article class="modal-card">
+        <button class="modal-close" data-close-modal type="button">×</button>
+        <div id="modal-content"></div>
+      </article>
+    </div>
+    <script src="js/app.js?v=20260927" defer></script>
+  </body>
+</html>
