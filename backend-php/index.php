@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/config/database.php';
+require_once __DIR__ . '/services/petugas_assistant.php';
 
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
@@ -1457,6 +1458,96 @@ try {
             fail('Laporan ini tidak ditemukan di Arsip.', 404);
         }
         respond(['message' => 'Laporan dipulihkan ke daftar utama.']);
+    }
+
+    if ($root === 'petugas' && $second === 'asisten' && $third === '' && $method === 'POST') {
+        $user = requireUser($pdo, 'petugas');
+        $worker = workerProfile($pdo, (int) $user['id']);
+        if (!$worker) {
+            fail('Akun belum terhubung ke data petugas aktif. Hubungi admin.', 403);
+        }
+        $question = trim((string) ($payload['question'] ?? $payload['pertanyaan'] ?? ''));
+        if ($question === '') {
+            fail('Tulis pertanyaan tentang tugas atau operasional Petugas.', 422);
+        }
+        $questionLength = function_exists('mb_strlen')
+            ? mb_strlen($question)
+            : preg_match_all('/./us', $question);
+        if ($questionLength === false || $questionLength > 600) {
+            fail('Pertanyaan maksimal 600 karakter.', 422);
+        }
+        try {
+            $context = petugasAssistantContext($pdo, (int) $user['id'], $worker);
+            $history = $payload['history'] ?? [];
+            $answer = requestPetugasAssistant($question, $context, is_array($history) ? $history : []);
+        } catch (RuntimeException $error) {
+            $message = match ($error->getMessage()) {
+                'OPENAI_KEY_MISSING' => 'Asisten AI belum dikonfigurasi. Admin server perlu mengisi SMARTWASTE_OPENAI_API_KEY.',
+                'CURL_UNAVAILABLE' => 'Fitur AI memerlukan ekstensi cURL pada PHP server.',
+                'OPENAI_KEY_INVALID' => 'Kunci OpenAI di server tidak valid. Minta admin server memeriksanya.',
+                default => 'Asisten sedang tidak dapat dijangkau. Coba lagi sebentar.',
+            };
+            fail($message, 503);
+        }
+
+        $available = [];
+        foreach (array_merge($context['my_tasks'], $context['incoming_reports']) as $task) {
+            $available[(string) $task['code']] = $task;
+        }
+        $requestedCodes = $answer['task_codes'];
+        foreach (array_keys($available) as $knownCode) {
+            $codePattern = '/(?<![A-Z0-9])' . preg_quote((string) $knownCode, '/') . '(?![A-Z0-9])/i';
+            if (preg_match($codePattern, $question) === 1) {
+                array_unshift($requestedCodes, (string) $knownCode);
+            }
+        }
+        $asksForTaskList = preg_match('/\b(daftar|list|cek|lihat|tugas|pekerjaan|antrean|antrian|kerjakan|prioritas)\b/ui', $question) === 1;
+        if ($asksForTaskList) {
+            $incomingOnly = preg_match('/laporan\s+masuk|antrean|antrian/ui', $question) === 1;
+            $historyOnly = preg_match('/riwayat|sudah\s+selesai|yang\s+ditolak/ui', $question) === 1;
+            $activeTasks = array_values(array_filter($context['my_tasks'], static fn(array $task): bool =>
+                in_array($task['status'], ['ditugaskan', 'diangkut'], true)
+            ));
+            $historyTasks = array_values(array_filter($context['my_tasks'], static fn(array $task): bool =>
+                in_array($task['status'], ['selesai', 'ditolak'], true)
+            ));
+            $prioritized = $incomingOnly
+                ? $context['incoming_reports']
+                : ($historyOnly ? $historyTasks : array_merge($activeTasks, $context['incoming_reports'], $historyTasks));
+            $requestedCodes = array_slice(array_values(array_unique(array_merge(
+                $requestedCodes,
+                array_column($prioritized, 'code')
+            ))), 0, 8);
+        }
+
+        $taskLinks = [];
+        foreach (array_unique($requestedCodes) as $code) {
+            $task = $available[(string) $code] ?? null;
+            if (!$task) {
+                continue;
+            }
+            $pageKey = (string) $task['page_key'];
+            $taskLinks[] = [
+                'code' => (string) $task['code'],
+                'status_label' => (string) $task['status_label'],
+                'page_key' => $pageKey,
+                'page_label' => match ($pageKey) {
+                    'laporan' => 'Laporan masuk',
+                    'aktif' => 'Tugas aktif',
+                    default => 'Riwayat',
+                },
+                'action_label' => match ($pageKey) {
+                    'laporan' => 'Buka laporan',
+                    'aktif' => 'Buka tugas',
+                    default => 'Lihat riwayat',
+                },
+            ];
+        }
+        respond([
+            'message' => $answer['message'],
+            'task_links' => $taskLinks,
+            'next_steps' => $answer['next_steps'],
+        ]);
     }
 
     if ($root === 'petugas' && $second === 'laporan' && $third === '' && $method === 'GET') {
