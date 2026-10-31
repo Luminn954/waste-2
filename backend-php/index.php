@@ -308,7 +308,8 @@ function adminNoteRows(PDO $pdo, bool $archived, string $search = ''): array
     }
     if (trim($search) !== '') {
         $where[] = "CONCAT_WS(' ', s.kode_laporan, s.jenis, s.lokasi, s.deskripsi, s.status,
-            u.nama, p.nama, latest.status, latest.catatan, kp.catatan_petugas, kp.catatan_admin) LIKE ?";
+            u.nama, p.nama, latest.status, latest.catatan, admin_latest.catatan,
+            kp.catatan_petugas, kp.catatan_admin) LIKE ?";
         $params[] = '%' . trim($search) . '%';
     }
 
@@ -318,6 +319,7 @@ function adminNoteRows(PDO $pdo, bool $archived, string $search = ''): array
                    kp.dikirim_pada AS completion_submitted_at,
                    kp.catatan_admin AS completion_review_note,
                    kp.catatan_petugas AS worker_note,
+                   admin_latest.catatan AS admin_note,
                    latest.status AS latest_status, latest.catatan AS status_note,
                    COALESCE(latest.dibuat_pada, s.dibuat_pada) AS updated_at,
                    ca.diarsipkan_pada AS archived_at,
@@ -336,6 +338,16 @@ function adminNoteRows(PDO $pdo, bool $archived, string $search = ''): array
                     FROM riwayat_status GROUP BY sampah_id
                 ) latest_ids ON latest_ids.latest_id = history.id
             ) latest ON latest.sampah_id = s.id
+            LEFT JOIN (
+                 SELECT history.sampah_id, history.catatan
+                 FROM riwayat_status history
+                 INNER JOIN (
+                     SELECT sampah_id, MAX(id) AS latest_id
+                     FROM riwayat_status
+                     WHERE catatan LIKE 'Catatan Admin:%'
+                     GROUP BY sampah_id
+                 ) admin_ids ON admin_ids.latest_id = history.id
+            ) admin_latest ON admin_latest.sampah_id = s.id
             LEFT JOIN catatan_admin_arsip ca ON ca.sampah_id = s.id
             LEFT JOIN users au ON au.id = ca.diarsipkan_oleh
             WHERE " . implode(' AND ', $where) . "
@@ -352,7 +364,7 @@ function adminNotePayload(PDO $pdo, array $row): array
         'report' => reportRow($pdo, $row),
         'status_note' => (string) ($row['status_note'] ?? ''),
         'worker_note' => (string) ($row['worker_note'] ?? ''),
-        'admin_note' => (string) ($row['completion_review_note'] ?? ''),
+        'admin_note' => (string) ($row['admin_note'] ?? ''),
         'updated_at' => (string) ($row['updated_at'] ?? ''),
     ];
 }
