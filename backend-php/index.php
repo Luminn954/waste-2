@@ -231,6 +231,10 @@ function reportRow(PDO $pdo, array $row, bool $includeHistory = false): array
         'vehicle_plate' => (string) ($row['plat_nomor'] ?? ''),
         'tpa_id' => $row['tpa_id'] === null ? null : (int) $row['tpa_id'],
         'tpa_name' => (string) ($row['nama_tpa'] ?? ''),
+        'completion_status' => (string) ($row['completion_status'] ?? ''),
+        'completion_proof_photo' => photoUrl($row['completion_photo'] ?? null),
+        'completion_submitted_at' => (string) ($row['completion_submitted_at'] ?? ''),
+        'completion_review_note' => (string) ($row['completion_review_note'] ?? ''),
     ];
     if ($includeHistory) {
         $result['timeline'] = statusHistory($pdo, (int) $row['id']);
@@ -239,10 +243,20 @@ function reportRow(PDO $pdo, array $row, bool $includeHistory = false): array
     return $result;
 }
 
-function reportQuery(PDO $pdo, ?int $userId = null, ?string $status = null, ?string $search = null, ?int $workerId = null): array
+function reportQuery(
+    PDO $pdo,
+    ?int $userId = null,
+    ?string $status = null,
+    ?string $search = null,
+    ?int $workerId = null,
+    bool $includeArchived = false
+): array
 {
     $where = [];
     $params = [];
+    if (!$includeArchived) {
+        $where[] = 'NOT EXISTS (SELECT 1 FROM laporan_arsip la WHERE la.sampah_id = s.id)';
+    }
     if ($userId !== null) {
         $where[] = 's.id_user = ?';
         $params[] = $userId;
@@ -266,12 +280,16 @@ function reportQuery(PDO $pdo, ?int $userId = null, ?string $status = null, ?str
     }
     $sql =
         'SELECT s.*, u.nama AS nama_user, u.username AS username_user,
-                p.nama AS nama_petugas, k.plat_nomor, t.nama AS nama_tpa
+                p.nama AS nama_petugas, k.plat_nomor, t.nama AS nama_tpa,
+                kp.status AS completion_status, kp.foto_bukti AS completion_photo,
+                kp.dikirim_pada AS completion_submitted_at,
+                kp.catatan_admin AS completion_review_note
          FROM sampah s
          LEFT JOIN users u ON u.id = s.id_user
          LEFT JOIN petugas p ON p.id = s.petugas_id
          LEFT JOIN kendaraan k ON k.id = s.kendaraan_id
-         LEFT JOIN tpa t ON t.id = s.tpa_id';
+         LEFT JOIN tpa t ON t.id = s.tpa_id
+         LEFT JOIN konfirmasi_penyelesaian kp ON kp.sampah_id = s.id';
     if ($where) {
         $sql .= ' WHERE ' . implode(' AND ', $where);
     }
@@ -281,16 +299,78 @@ function reportQuery(PDO $pdo, ?int $userId = null, ?string $status = null, ?str
     return $stmt->fetchAll();
 }
 
+function adminNoteRows(PDO $pdo, bool $archived, string $search = ''): array
+{
+    $where = [$archived ? 'ca.sampah_id IS NOT NULL' : 'ca.sampah_id IS NULL'];
+    $params = [];
+    if (!$archived) {
+        $where[] = 'NOT EXISTS (SELECT 1 FROM laporan_arsip la WHERE la.sampah_id = s.id)';
+    }
+    if (trim($search) !== '') {
+        $where[] = "CONCAT_WS(' ', s.kode_laporan, s.jenis, s.lokasi, s.deskripsi, s.status,
+            u.nama, p.nama, latest.status, latest.catatan, kp.catatan_petugas, kp.catatan_admin) LIKE ?";
+        $params[] = '%' . trim($search) . '%';
+    }
+
+    $sql = "SELECT s.*, u.nama AS nama_user, u.username AS username_user,
+                   p.nama AS nama_petugas, k.plat_nomor, t.nama AS nama_tpa,
+                   kp.status AS completion_status, kp.foto_bukti AS completion_photo,
+                   kp.dikirim_pada AS completion_submitted_at,
+                   kp.catatan_admin AS completion_review_note,
+                   kp.catatan_petugas AS worker_note,
+                   latest.status AS latest_status, latest.catatan AS status_note,
+                   COALESCE(latest.dibuat_pada, s.dibuat_pada) AS updated_at,
+                   ca.diarsipkan_pada AS archived_at,
+                   COALESCE(au.nama, 'Admin') AS archived_by
+            FROM sampah s
+            LEFT JOIN users u ON u.id = s.id_user
+            LEFT JOIN petugas p ON p.id = s.petugas_id
+            LEFT JOIN kendaraan k ON k.id = s.kendaraan_id
+            LEFT JOIN tpa t ON t.id = s.tpa_id
+            LEFT JOIN konfirmasi_penyelesaian kp ON kp.sampah_id = s.id
+            LEFT JOIN (
+                SELECT history.sampah_id, history.status, history.catatan, history.dibuat_pada
+                FROM riwayat_status history
+                INNER JOIN (
+                    SELECT sampah_id, MAX(id) AS latest_id
+                    FROM riwayat_status GROUP BY sampah_id
+                ) latest_ids ON latest_ids.latest_id = history.id
+            ) latest ON latest.sampah_id = s.id
+            LEFT JOIN catatan_admin_arsip ca ON ca.sampah_id = s.id
+            LEFT JOIN users au ON au.id = ca.diarsipkan_oleh
+            WHERE " . implode(' AND ', $where) . "
+            ORDER BY COALESCE(latest.dibuat_pada, s.dibuat_pada) DESC, s.id DESC";
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    return $stmt->fetchAll();
+}
+
+function adminNotePayload(PDO $pdo, array $row): array
+{
+    return [
+        'report' => reportRow($pdo, $row),
+        'status_note' => (string) ($row['status_note'] ?? ''),
+        'worker_note' => (string) ($row['worker_note'] ?? ''),
+        'admin_note' => (string) ($row['completion_review_note'] ?? ''),
+        'updated_at' => (string) ($row['updated_at'] ?? ''),
+    ];
+}
+
 function findReport(PDO $pdo, int $id): ?array
 {
     $stmt = $pdo->prepare(
         'SELECT s.*, u.nama AS nama_user, u.username AS username_user,
-                p.nama AS nama_petugas, k.plat_nomor, t.nama AS nama_tpa
+                p.nama AS nama_petugas, k.plat_nomor, t.nama AS nama_tpa,
+                kp.status AS completion_status, kp.foto_bukti AS completion_photo,
+                kp.dikirim_pada AS completion_submitted_at,
+                kp.catatan_admin AS completion_review_note
          FROM sampah s
          LEFT JOIN users u ON u.id = s.id_user
          LEFT JOIN petugas p ON p.id = s.petugas_id
          LEFT JOIN kendaraan k ON k.id = s.kendaraan_id
          LEFT JOIN tpa t ON t.id = s.tpa_id
+         LEFT JOIN konfirmasi_penyelesaian kp ON kp.sampah_id = s.id
          WHERE s.id = ? LIMIT 1'
     );
     $stmt->execute([$id]);
@@ -488,10 +568,18 @@ function adminUserRows(PDO $pdo): array
 function adminWorkerRows(PDO $pdo): array
 {
     $rows = $pdo->query(
-        'SELECT p.id, p.user_id, p.nama, p.zona_tugas, p.total_ambil, p.status_aktif,
-                u.username, u.aktif AS account_active
+        "SELECT p.id, p.user_id, p.nama, p.zona_tugas, p.total_ambil, p.status_aktif,
+                u.username, u.aktif AS account_active,
+                (SELECT COUNT(*) FROM sampah s
+                 WHERE s.petugas_id = p.id AND s.status = 'selesai') AS completed_tasks,
+                (SELECT COALESCE(SUM(s.berat_kg), 0) FROM sampah s
+                 WHERE s.petugas_id = p.id AND s.status = 'selesai') AS completed_weight_kg,
+                (SELECT COUNT(*) FROM sampah s
+                 WHERE s.petugas_id = p.id AND s.status IN ('ditugaskan', 'diangkut')) AS active_tasks,
+                (SELECT COUNT(*) FROM konfirmasi_penyelesaian kp
+                 WHERE kp.petugas_id = p.id AND kp.status = 'menunggu') AS pending_confirmations
          FROM petugas p LEFT JOIN users u ON u.id = p.user_id
-         ORDER BY p.nama ASC'
+         ORDER BY p.nama ASC"
     )->fetchAll();
     return array_map(static fn(array $row): array => [
         'id' => (int) $row['id'],
@@ -502,6 +590,10 @@ function adminWorkerRows(PDO $pdo): array
         'zona_tugas' => (string) $row['zona_tugas'],
         'total_pickups' => (int) $row['total_ambil'],
         'total_ambil' => (int) $row['total_ambil'],
+        'completed_tasks' => (int) $row['completed_tasks'],
+        'completed_weight_kg' => (float) $row['completed_weight_kg'],
+        'active_tasks' => (int) $row['active_tasks'],
+        'pending_confirmations' => (int) $row['pending_confirmations'],
         'active' => (bool) $row['status_aktif'] && $row['user_id'] !== null && (bool) ($row['account_active'] ?? false),
         'username' => (string) ($row['username'] ?? ''),
         'has_account' => $row['user_id'] !== null,
@@ -709,7 +801,14 @@ try {
         $user = requireUser($pdo);
         $status = normalizeStatus((string) ($_GET['status'] ?? ''));
         $search = isset($_GET['q']) ? (string) $_GET['q'] : null;
-        $rows = reportQuery($pdo, $user['role'] === 'user' ? (int) $user['id'] : null, $status, $search);
+        $rows = reportQuery(
+            $pdo,
+            $user['role'] === 'user' ? (int) $user['id'] : null,
+            $status,
+            $search,
+            null,
+            $user['role'] !== 'admin'
+        );
         $reports = array_map(fn(array $row): array => reportRow($pdo, $row), $rows);
         respond(['reports' => $reports, 'data' => $reports]);
     }
@@ -717,7 +816,7 @@ try {
     if (($root === 'sampah' || $root === 'laporan') && ($second === 'mine' || $second === 'saya') && $method === 'GET') {
         $user = requireUser($pdo, 'user');
         $status = normalizeStatus((string) ($_GET['status'] ?? ''));
-        $rows = reportQuery($pdo, (int) $user['id'], $status);
+        $rows = reportQuery($pdo, (int) $user['id'], $status, null, null, true);
         $reports = array_map(fn(array $row): array => reportRow($pdo, $row, true), $rows);
         respond(['reports' => $reports, 'data' => $reports]);
     }
@@ -791,11 +890,176 @@ try {
         respond(['workers' => $workers, 'data' => $workers]);
     }
 
+    if ($root === 'admin' && $second === 'konfirmasi-penyelesaian' && $third === '' && $method === 'GET') {
+        requireUser($pdo, 'admin');
+        $rows = $pdo->query(
+            "SELECT kp.id AS confirmation_id, kp.foto_bukti AS proof_photo,
+                    kp.catatan_petugas AS worker_note, kp.dikirim_pada AS submitted_at,
+                    s.*, u.nama AS nama_user, u.username AS username_user,
+                    p.nama AS nama_petugas, k.plat_nomor, t.nama AS nama_tpa,
+                    kp.status AS completion_status, kp.foto_bukti AS completion_photo,
+                    kp.dikirim_pada AS completion_submitted_at,
+                    kp.catatan_admin AS completion_review_note
+             FROM konfirmasi_penyelesaian kp
+             JOIN sampah s ON s.id = kp.sampah_id
+             LEFT JOIN users u ON u.id = s.id_user
+             LEFT JOIN petugas p ON p.id = kp.petugas_id
+             LEFT JOIN kendaraan k ON k.id = s.kendaraan_id
+             LEFT JOIN tpa t ON t.id = s.tpa_id
+             WHERE kp.status = 'menunggu'
+             ORDER BY kp.dikirim_pada ASC, kp.id ASC"
+        )->fetchAll();
+        $reviews = array_map(static fn(array $row): array => [
+            'id' => (int) $row['confirmation_id'],
+            'report' => reportRow($pdo, $row),
+            'worker_name' => (string) ($row['nama_petugas'] ?? ''),
+            'proof_photo' => photoUrl($row['proof_photo'] ?? null),
+            'worker_note' => (string) ($row['worker_note'] ?? ''),
+            'submitted_at' => (string) ($row['submitted_at'] ?? ''),
+        ], $rows);
+        respond(['reviews' => $reviews, 'data' => $reviews]);
+    }
+
+    if ($root === 'admin' && $second === 'catatan-admin' && $third === '' && $method === 'GET') {
+        requireUser($pdo, 'admin');
+        $notes = array_map(
+            static fn(array $row): array => adminNotePayload($pdo, $row),
+            adminNoteRows($pdo, false)
+        );
+        respond(['notes' => $notes, 'data' => $notes]);
+    }
+
+    if ($root === 'admin' && $second === 'catatan-admin'
+        && ($noteReportId = intSegment($third)) !== null
+        && ($parts[3] ?? '') === 'catatan' && $method === 'POST') {
+        $admin = requireUser($pdo, 'admin');
+        $note = trim((string) ($payload['catatan'] ?? $payload['note'] ?? ''));
+        if ($note === '') {
+            fail('Catatan admin wajib diisi.', 422);
+        }
+        if (strlen($note) > 240) {
+            fail('Catatan admin maksimal 240 byte.', 422);
+        }
+
+        $pdo->beginTransaction();
+        try {
+            $stmt = $pdo->prepare('SELECT id, status FROM sampah WHERE id = ? FOR UPDATE');
+            $stmt->execute([$noteReportId]);
+            $report = $stmt->fetch();
+            if (!$report) {
+                $pdo->rollBack();
+                fail('Laporan tidak ditemukan.', 404);
+            }
+            $stmt = $pdo->prepare(
+                'INSERT INTO riwayat_status (sampah_id, status, diubah_oleh, catatan) VALUES (?, ?, ?, ?)'
+            );
+            $stmt->execute([
+                $noteReportId,
+                (string) $report['status'],
+                $admin['id'],
+                'Catatan Admin: ' . $note,
+            ]);
+            $pdo->commit();
+        } catch (Throwable $error) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $error;
+        }
+
+        respond(['message' => 'Catatan admin berhasil disimpan pada riwayat laporan.'], 201);
+    }
+
+    if ($root === 'admin' && $second === 'arsip-catatan-admin' && $third === '' && $method === 'GET') {
+        requireUser($pdo, 'admin');
+        $rows = adminNoteRows($pdo, true, (string) ($_GET['q'] ?? ''));
+        $archivedNotes = array_map(static fn(array $row): array => [
+            'note' => adminNotePayload($pdo, $row),
+            'archived_at' => (string) ($row['archived_at'] ?? ''),
+            'archived_by' => (string) ($row['archived_by'] ?? 'Admin'),
+        ], $rows);
+        respond(['archived_notes' => $archivedNotes, 'data' => $archivedNotes]);
+    }
+
+    if ($root === 'admin' && $second === 'catatan-admin'
+        && ($noteReportId = intSegment($third)) !== null
+        && ($parts[3] ?? '') === 'arsip' && $method === 'POST') {
+        $admin = requireUser($pdo, 'admin');
+        $stmt = $pdo->prepare('SELECT id FROM sampah WHERE id = ? LIMIT 1');
+        $stmt->execute([$noteReportId]);
+        if (!$stmt->fetchColumn()) {
+            fail('Catatan laporan tidak ditemukan.', 404);
+        }
+        $pdo->prepare(
+            'INSERT INTO catatan_admin_arsip (sampah_id, diarsipkan_oleh) VALUES (?, ?)
+             ON DUPLICATE KEY UPDATE diarsipkan_oleh = VALUES(diarsipkan_oleh), diarsipkan_pada = NOW()'
+        )->execute([$noteReportId, $admin['id']]);
+        respond(['message' => 'Catatan laporan disimpan ke Arsip. Data laporan tetap utuh.']);
+    }
+
+    if ($root === 'admin' && $second === 'arsip-catatan-admin'
+        && ($noteReportId = intSegment($third)) !== null
+        && ($parts[3] ?? '') === 'pulihkan' && $method === 'PATCH') {
+        requireUser($pdo, 'admin');
+        $stmt = $pdo->prepare('DELETE FROM catatan_admin_arsip WHERE sampah_id = ?');
+        $stmt->execute([$noteReportId]);
+        if ($stmt->rowCount() === 0) {
+            fail('Catatan tidak ditemukan di Arsip.', 404);
+        }
+        respond(['message' => 'Catatan laporan dipulihkan ke daftar aktif.']);
+    }
+
+    if ($root === 'admin' && $second === 'catatan-selesai' && $third === '' && $method === 'GET') {
+        requireUser($pdo, 'admin');
+        $rows = $pdo->query(
+            "SELECT kp.id AS confirmation_id, kp.catatan_petugas AS worker_note,
+                    kp.dikirim_pada AS submitted_at, s.*,
+                    u.nama AS nama_user, u.username AS username_user,
+                    p.nama AS nama_petugas, k.plat_nomor, t.nama AS nama_tpa,
+                    kp.status AS completion_status, kp.foto_bukti AS completion_photo,
+                    kp.dikirim_pada AS completion_submitted_at,
+                    kp.catatan_admin AS completion_review_note
+             FROM konfirmasi_penyelesaian kp
+             JOIN sampah s ON s.id = kp.sampah_id
+             LEFT JOIN users u ON u.id = s.id_user
+             LEFT JOIN petugas p ON p.id = kp.petugas_id
+             LEFT JOIN kendaraan k ON k.id = s.kendaraan_id
+             LEFT JOIN tpa t ON t.id = s.tpa_id
+             WHERE kp.status = 'disetujui'
+               AND TRIM(COALESCE(kp.catatan_petugas, '')) <> ''
+               AND NOT EXISTS (
+                   SELECT 1 FROM catatan_admin_arsip ca WHERE ca.sampah_id = s.id
+               )
+             ORDER BY kp.direview_pada DESC, kp.id DESC"
+        )->fetchAll();
+        $notes = array_map(static fn(array $row): array => [
+            'id' => (int) $row['confirmation_id'],
+            'report' => reportRow($pdo, $row),
+            'worker_name' => (string) ($row['nama_petugas'] ?? ''),
+            'note' => (string) ($row['worker_note'] ?? ''),
+            'submitted_at' => (string) ($row['submitted_at'] ?? ''),
+        ], $rows);
+        respond(['notes' => $notes, 'data' => $notes]);
+    }
+
+    if ($root === 'admin' && $second === 'catatan-selesai'
+        && ($noteId = intSegment($third)) !== null && $method === 'DELETE') {
+        $admin = requireUser($pdo, 'admin');
+        $stmt = $pdo->prepare('SELECT sampah_id FROM konfirmasi_penyelesaian WHERE id = ? LIMIT 1');
+        $stmt->execute([$noteId]);
+        $reportId = (int) $stmt->fetchColumn();
+        if ($reportId < 1) {
+            fail('Catatan tugas tidak ditemukan.', 404);
+        }
+        $pdo->prepare(
+            'INSERT INTO catatan_admin_arsip (sampah_id, diarsipkan_oleh) VALUES (?, ?)
+             ON DUPLICATE KEY UPDATE diarsipkan_oleh = VALUES(diarsipkan_oleh), diarsipkan_pada = NOW()'
+        )->execute([$reportId, $admin['id']]);
+        respond(['message' => 'Catatan tugas disimpan ke Arsip. Data laporan tetap utuh.']);
+    }
+
     if ($root === 'admin' && in_array($second, ['petugas', 'akun'], true) && $third === '' && $method === 'POST') {
         $creator = requireUser($pdo, 'admin');
-        if (!(bool) ($creator['is_super_admin'] ?? false)) {
-            fail('Hanya admin pertama yang dapat mendaftarkan akun Admin/Petugas.', 403);
-        }
         $name = trim((string) ($payload['nama'] ?? $payload['name'] ?? ''));
         $username = trim((string) ($payload['username'] ?? ''));
         $email = strtolower(trim((string) ($payload['email'] ?? '')));
@@ -804,6 +1068,12 @@ try {
         $role = $second === 'petugas' ? 'petugas' : strtolower(trim((string) ($payload['role'] ?? '')));
         if (!in_array($role, ['admin', 'petugas'], true)) {
             fail('Role akun harus Admin atau Petugas.', 422);
+        }
+        if ($role !== 'petugas') {
+            fail('Admin hanya dapat menambahkan akun Petugas.', 403);
+        }
+        if ($role === 'admin' && !(bool) ($creator['is_super_admin'] ?? false)) {
+            fail('Hanya admin pertama yang dapat menambahkan akun Admin.', 403);
         }
         if ($name === '' || strlen($username) < 3 || strlen($password) < 5 || $email === '') {
             fail('Nama, username minimal 3 karakter, email, dan password awal minimal 5 karakter wajib diisi.', 422);
@@ -838,6 +1108,77 @@ try {
     }
 
     $staffId = $root === 'admin' && $second === 'petugas' ? intSegment($third) : null;
+    if ($staffId !== null && $method === 'DELETE' && ($parts[3] ?? '') === '') {
+        $admin = requireUser($pdo, 'admin');
+        $replacementId = (int) ($_GET['replacement_worker_id'] ?? $payload['replacement_worker_id'] ?? 0);
+        $pdo->beginTransaction();
+        try {
+            $stmt = $pdo->prepare(
+                'SELECT p.id, p.user_id, u.role FROM petugas p '
+                . 'LEFT JOIN users u ON u.id = p.user_id WHERE p.id = ? FOR UPDATE'
+            );
+            $stmt->execute([$staffId]);
+            $worker = $stmt->fetch();
+            if (!$worker || $worker['user_id'] === null || $worker['role'] !== 'petugas') {
+                $pdo->rollBack();
+                fail('Akun petugas tidak ditemukan.', 404);
+            }
+            $openTasks = $pdo->prepare(
+                "SELECT id, status FROM sampah
+                 WHERE petugas_id = ? AND status IN ('ditugaskan', 'diangkut')
+                 FOR UPDATE"
+            );
+            $openTasks->execute([$staffId]);
+            $tasksToTransfer = $openTasks->fetchAll();
+            if ($tasksToTransfer && $replacementId < 1) {
+                $pdo->rollBack();
+                fail('Pilih petugas aktif pengganti untuk mengalihkan tugas sebelum menghapus akun.', 409);
+            }
+            if ($tasksToTransfer) {
+                $stmt = $pdo->prepare(
+                    'SELECT p.id, p.user_id, p.status_aktif, u.role, u.aktif
+                     FROM petugas p JOIN users u ON u.id = p.user_id
+                     WHERE p.id = ? FOR UPDATE'
+                );
+                $stmt->execute([$replacementId]);
+                $replacement = $stmt->fetch();
+                if (!$replacement || $replacementId === $staffId
+                    || $replacement['role'] !== 'petugas'
+                    || !(int) $replacement['status_aktif'] || !(int) $replacement['aktif']) {
+                    $pdo->rollBack();
+                    fail('Petugas pengganti harus memiliki akun aktif.', 422);
+                }
+
+                $transfer = $pdo->prepare('UPDATE sampah SET petugas_id = ? WHERE id = ? AND petugas_id = ?');
+                $history = $pdo->prepare(
+                    'INSERT INTO riwayat_status (sampah_id, status, diubah_oleh, catatan) VALUES (?, ?, ?, ?)'
+                );
+                foreach ($tasksToTransfer as $task) {
+                    $transfer->execute([$replacementId, $task['id'], $staffId]);
+                    $history->execute([
+                        $task['id'],
+                        $task['status'],
+                        $admin['id'],
+                        'Tugas dialihkan kepada petugas pengganti sebelum akun petugas sebelumnya dihapus.',
+                    ]);
+                }
+            }
+            $userId = (int) $worker['user_id'];
+            $pdo->prepare('DELETE FROM auth_tokens WHERE user_id = ?')->execute([$userId]);
+            $pdo->prepare('UPDATE petugas SET user_id = NULL, status_aktif = 0 WHERE id = ?')->execute([$staffId]);
+            $pdo->prepare('DELETE FROM users WHERE id = ? AND role = "petugas"')->execute([$userId]);
+            $pdo->commit();
+        } catch (Throwable $error) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $error;
+        }
+        respond([
+            'message' => 'Akun petugas dihapus. Riwayat tetap disimpan; tugas aktif dialihkan jika diperlukan.',
+            'workers' => adminWorkerRows($pdo),
+        ]);
+    }
     if ($staffId !== null && $method === 'PATCH' && ($parts[3] ?? '') === '') {
         requireUser($pdo, 'admin');
         $stmt = $pdo->prepare('SELECT id, user_id, status_aktif FROM petugas WHERE id = ? LIMIT 1');
@@ -874,13 +1215,13 @@ try {
         respond(['dashboard' => $summary, 'data' => $summary]);
     }
 
-    if ($root === 'admin' && $second === 'kendaraan' && $third === '' && $method === 'GET') {
-        requireUser($pdo, 'admin');
+    if (in_array($root, ['admin', 'petugas'], true) && $second === 'kendaraan' && $third === '' && $method === 'GET') {
+        requireUser($pdo, 'petugas');
         $vehicles = adminVehicleRows($pdo);
         respond(['vehicles' => $vehicles, 'data' => $vehicles]);
     }
-    if ($root === 'admin' && $second === 'kendaraan' && $third === '' && $method === 'POST') {
-        requireUser($pdo, 'admin');
+    if (in_array($root, ['admin', 'petugas'], true) && $second === 'kendaraan' && $third === '' && $method === 'POST') {
+        requireUser($pdo, 'petugas');
         $plate = strtoupper(trim((string) ($payload['plat_nomor'] ?? $payload['plate'] ?? '')));
         $capacity = (float) ($payload['kapasitas_kg'] ?? $payload['capacity_kg'] ?? 0);
         if ($plate === '' || $capacity <= 0) {
@@ -899,9 +1240,9 @@ try {
         }
         respond(['message' => 'Kendaraan berhasil ditambahkan.', 'vehicles' => adminVehicleRows($pdo)], 201);
     }
-    $vehicleId = $root === 'admin' && $second === 'kendaraan' ? intSegment($third) : null;
+    $vehicleId = in_array($root, ['admin', 'petugas'], true) && $second === 'kendaraan' ? intSegment($third) : null;
     if ($vehicleId !== null && $method === 'PATCH' && ($parts[3] ?? '') === '') {
-        requireUser($pdo, 'admin');
+        requireUser($pdo, 'petugas');
         $pdo->beginTransaction();
         try {
             $stmt = $pdo->prepare('SELECT * FROM kendaraan WHERE id = ? FOR UPDATE');
@@ -956,13 +1297,13 @@ try {
         respond(['message' => 'Data kendaraan diperbarui.', 'vehicles' => adminVehicleRows($pdo)]);
     }
 
-    if ($root === 'admin' && $second === 'tpa' && $third === '' && $method === 'GET') {
-        requireUser($pdo, 'admin');
+    if (in_array($root, ['admin', 'petugas'], true) && $second === 'tpa' && $third === '' && $method === 'GET') {
+        requireUser($pdo, 'petugas');
         $facilities = adminTpaRows($pdo);
         respond(['tpa' => $facilities, 'data' => $facilities]);
     }
-    if ($root === 'admin' && $second === 'tpa' && $third === '' && $method === 'POST') {
-        requireUser($pdo, 'admin');
+    if (in_array($root, ['admin', 'petugas'], true) && $second === 'tpa' && $third === '' && $method === 'POST') {
+        requireUser($pdo, 'petugas');
         $name = trim((string) ($payload['nama'] ?? $payload['name'] ?? ''));
         $address = trim((string) ($payload['alamat'] ?? $payload['address'] ?? ''));
         $capacity = (float) ($payload['kapasitas_ton'] ?? $payload['capacity_ton'] ?? 0);
@@ -972,9 +1313,9 @@ try {
         $pdo->prepare('INSERT INTO tpa (nama, alamat, kapasitas_ton) VALUES (?, ?, ?)')->execute([$name, $address, $capacity]);
         respond(['message' => 'Data TPA berhasil ditambahkan.', 'tpa' => adminTpaRows($pdo)], 201);
     }
-    $tpaId = $root === 'admin' && $second === 'tpa' ? intSegment($third) : null;
+    $tpaId = in_array($root, ['admin', 'petugas'], true) && $second === 'tpa' ? intSegment($third) : null;
     if ($tpaId !== null && $method === 'PATCH' && ($parts[3] ?? '') === '') {
-        requireUser($pdo, 'admin');
+        requireUser($pdo, 'petugas');
         $pdo->beginTransaction();
         try {
             $stmt = $pdo->prepare('SELECT terisi_ton FROM tpa WHERE id = ? FOR UPDATE');
@@ -1038,7 +1379,120 @@ try {
         respond(['reports' => $reports, 'data' => $reports]);
     }
 
+    if ($root === 'admin' && $second === 'arsip-laporan' && $third === '' && $method === 'GET') {
+        requireUser($pdo, 'admin');
+        $rows = $pdo->query(
+            "SELECT la.diarsipkan_pada AS archived_at, au.nama AS archived_by,
+                    s.*, u.nama AS nama_user, u.username AS username_user,
+                    p.nama AS nama_petugas, k.plat_nomor, t.nama AS nama_tpa,
+                    kp.status AS completion_status, kp.foto_bukti AS completion_photo,
+                    kp.dikirim_pada AS completion_submitted_at,
+                    kp.catatan_admin AS completion_review_note
+             FROM laporan_arsip la
+             JOIN sampah s ON s.id = la.sampah_id
+             LEFT JOIN users u ON u.id = s.id_user
+             LEFT JOIN users au ON au.id = la.diarsipkan_oleh
+             LEFT JOIN petugas p ON p.id = s.petugas_id
+             LEFT JOIN kendaraan k ON k.id = s.kendaraan_id
+             LEFT JOIN tpa t ON t.id = s.tpa_id
+             LEFT JOIN konfirmasi_penyelesaian kp ON kp.sampah_id = s.id
+             ORDER BY la.diarsipkan_pada DESC, s.id DESC"
+        )->fetchAll();
+        $archivedReports = array_map(static fn(array $row): array => [
+            'report' => reportRow($pdo, $row),
+            'archived_at' => (string) ($row['archived_at'] ?? ''),
+            'archived_by' => (string) ($row['archived_by'] ?? 'Admin'),
+        ], $rows);
+        respond(['archived_reports' => $archivedReports, 'data' => $archivedReports]);
+    }
+
     $adminReportId = intSegment($third);
+
+    if ($root === 'admin' && in_array($second, ['laporan', 'reports'], true)
+        && $adminReportId !== null && ($parts[3] ?? '') === 'arsip' && $method === 'POST') {
+        $admin = requireUser($pdo, 'admin');
+        $stmt = $pdo->prepare('SELECT status FROM sampah WHERE id = ? LIMIT 1');
+        $stmt->execute([$adminReportId]);
+        $status = $stmt->fetchColumn();
+        if ($status === false) {
+            fail('Laporan tidak ditemukan.', 404);
+        }
+        $pdo->prepare(
+            'INSERT INTO laporan_arsip (sampah_id, diarsipkan_oleh) VALUES (?, ?)
+             ON DUPLICATE KEY UPDATE diarsipkan_oleh = VALUES(diarsipkan_oleh), diarsipkan_pada = NOW()'
+        )->execute([$adminReportId, $admin['id']]);
+        respond(['message' => 'Laporan dipindahkan ke arsip Admin dan tetap tersedia untuk user/petugas.']);
+    }
+
+    if ($root === 'admin' && $second === 'arsip-laporan' && $adminReportId !== null
+        && ($parts[3] ?? '') === 'pulihkan' && $method === 'PATCH') {
+        requireUser($pdo, 'admin');
+        $stmt = $pdo->prepare('DELETE FROM laporan_arsip WHERE sampah_id = ?');
+        $stmt->execute([$adminReportId]);
+        if ($stmt->rowCount() === 0) {
+            fail('Laporan ini tidak ditemukan di Arsip.', 404);
+        }
+        respond(['message' => 'Laporan dipulihkan ke daftar utama.']);
+    }
+
+    if ($root === 'petugas' && $second === 'laporan' && $third === '' && $method === 'GET') {
+        $user = requireUser($pdo, 'petugas');
+        if (!workerProfile($pdo, (int) $user['id'])) {
+            fail('Akun belum terhubung ke data petugas aktif. Hubungi admin.', 403);
+        }
+        $rows = reportQuery($pdo, null, 'menunggu_verifikasi', null, null, true);
+        $reports = array_map(fn(array $row): array => reportRow($pdo, $row, true), $rows);
+        respond(['reports' => $reports, 'data' => $reports]);
+    }
+
+    if ($root === 'petugas' && $second === 'kendaraan' && $third === '' && $method === 'GET') {
+        requireUser($pdo, 'petugas');
+        $vehicles = adminVehicleRows($pdo);
+        respond(['vehicles' => $vehicles, 'data' => $vehicles]);
+    }
+
+    if ($root === 'petugas' && $second === 'tpa' && $third === '' && $method === 'GET') {
+        requireUser($pdo, 'petugas');
+        $facilities = adminTpaRows($pdo);
+        respond(['tpa' => $facilities, 'data' => $facilities]);
+    }
+
+    $petugasReportId = $root === 'petugas' && $second === 'laporan' ? intSegment($third) : null;
+    if ($petugasReportId !== null && ($parts[3] ?? '') === 'tolak' && $method === 'PATCH') {
+        $user = requireUser($pdo, 'petugas');
+        if (!workerProfile($pdo, (int) $user['id'])) {
+            fail('Akun belum terhubung ke data petugas aktif. Hubungi admin.', 403);
+        }
+        $note = trim((string) ($payload['catatan'] ?? $payload['note'] ?? ''));
+        if (strlen($note) > 500) {
+            fail('Catatan maksimal 500 karakter.', 422);
+        }
+        $pdo->beginTransaction();
+        try {
+            $stmt = $pdo->prepare('SELECT status FROM sampah WHERE id = ? FOR UPDATE');
+            $stmt->execute([$petugasReportId]);
+            $status = $stmt->fetchColumn();
+            if ($status === false) {
+                $pdo->rollBack();
+                fail('Laporan tidak ditemukan.', 404);
+            }
+            if ($status !== 'menunggu_verifikasi') {
+                $pdo->rollBack();
+                fail('Hanya laporan baru yang dapat ditolak petugas.', 409);
+            }
+            $pdo->prepare('UPDATE sampah SET status = "ditolak" WHERE id = ?')->execute([$petugasReportId]);
+            $pdo->prepare('INSERT INTO riwayat_status (sampah_id, status, diubah_oleh, catatan) VALUES (?, "ditolak", ?, ?)')
+                ->execute([$petugasReportId, $user['id'], $note !== '' ? $note : 'Laporan ditolak setelah ditinjau petugas.']);
+            $pdo->commit();
+        } catch (Throwable $error) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $error;
+        }
+        $updated = findReport($pdo, $petugasReportId);
+        respond(['message' => 'Laporan ditolak oleh petugas.', 'report' => reportRow($pdo, $updated, true)]);
+    }
 
     if ($root === 'petugas' && $second === 'tugas' && $third === '' && $method === 'GET') {
         $user = requireUser($pdo, 'petugas');
@@ -1046,7 +1500,7 @@ try {
         if (!$worker) {
             fail('Akun belum terhubung ke data petugas aktif. Hubungi admin.', 403);
         }
-        $rows = reportQuery($pdo, null, null, null, (int) $worker['id']);
+        $rows = reportQuery($pdo, null, null, null, (int) $worker['id'], true);
         $rows = array_values(array_filter($rows, static fn(array $row): bool =>
             in_array((string) $row['status'], ['ditugaskan', 'diangkut', 'selesai'], true)
         ));
@@ -1057,6 +1511,197 @@ try {
         ]]);
     }
 
+    if ($root === 'petugas' && $second === 'tugas'
+        && ($parts[3] ?? '') === 'konfirmasi-selesai'
+        && ($taskId = intSegment($third)) !== null && $method === 'POST') {
+        $user = requireUser($pdo, 'petugas');
+        $worker = workerProfile($pdo, (int) $user['id']);
+        if (!$worker) {
+            fail('Akun belum terhubung ke data petugas aktif. Hubungi admin.', 403);
+        }
+        if (!isset($_FILES['foto']) || !is_array($_FILES['foto'])
+            || (int) ($_FILES['foto']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+            fail('Foto bukti penyelesaian wajib dilampirkan.', 422);
+        }
+        $note = trim((string) ($payload['catatan'] ?? ''));
+        if (strlen($note) > 500) {
+            fail('Catatan maksimal 500 karakter.', 422);
+        }
+
+        $pdo->beginTransaction();
+        try {
+            $stmt = $pdo->prepare('SELECT * FROM sampah WHERE id = ? FOR UPDATE');
+            $stmt->execute([$taskId]);
+            $report = $stmt->fetch();
+            if (!$report) {
+                $pdo->rollBack();
+                fail('Penugasan tidak ditemukan.', 404);
+            }
+            if ((int) ($report['petugas_id'] ?? 0) !== (int) $worker['id']) {
+                $pdo->rollBack();
+                fail('Penugasan ini bukan milik akun petugas tersebut.', 403);
+            }
+            if ($report['status'] !== 'diangkut') {
+                $pdo->rollBack();
+                fail('Bukti hanya dapat dikirim setelah sampah berstatus diangkut.', 409);
+            }
+            $stmt = $pdo->prepare('SELECT * FROM konfirmasi_penyelesaian WHERE sampah_id = ? FOR UPDATE');
+            $stmt->execute([$taskId]);
+            $previous = $stmt->fetch();
+            if ($previous && $previous['status'] !== 'perlu_perbaikan') {
+                $pdo->rollBack();
+                fail('Bukti sudah dikirim dan sedang menunggu pemeriksaan admin.', 409);
+            }
+            $photo = saveUploadedPhoto();
+            if ($photo === '') {
+                $pdo->rollBack();
+                fail('Foto bukti penyelesaian wajib dilampirkan.', 422);
+            }
+            if ($previous) {
+                $pdo->prepare(
+                    "UPDATE konfirmasi_penyelesaian
+                     SET petugas_id = ?, foto_bukti = ?, catatan_petugas = ?, status = 'menunggu',
+                         direview_oleh = NULL, direview_pada = NULL, catatan_admin = '', dikirim_pada = NOW()
+                     WHERE id = ?"
+                )->execute([$worker['id'], $photo, $note, $previous['id']]);
+            } else {
+                $pdo->prepare(
+                    "INSERT INTO konfirmasi_penyelesaian
+                     (sampah_id, petugas_id, foto_bukti, catatan_petugas, status)
+                     VALUES (?, ?, ?, ?, 'menunggu')"
+                )->execute([$taskId, $worker['id'], $photo, $note]);
+            }
+            $pdo->prepare(
+                'INSERT INTO riwayat_status (sampah_id, status, diubah_oleh, catatan) VALUES (?, ?, ?, ?)'
+            )->execute([$taskId, 'diangkut', $user['id'], 'Petugas mengirim bukti foto penyelesaian untuk diperiksa admin.']);
+            $pdo->commit();
+        } catch (Throwable $error) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $error;
+        }
+        $updated = findReport($pdo, $taskId);
+        respond(['message' => 'Bukti foto dikirim. Tugas menunggu pemeriksaan admin.', 'report' => reportRow($pdo, $updated, true)], 201);
+    }
+
+    if ($root === 'admin' && $second === 'konfirmasi-penyelesaian'
+        && ($reviewId = intSegment($third)) !== null && $method === 'PATCH') {
+        $admin = requireUser($pdo, 'admin');
+        $action = strtolower(trim((string) ($payload['action'] ?? '')));
+        $note = trim((string) ($payload['catatan'] ?? ''));
+        if (!in_array($action, ['approve', 'revision'], true)) {
+            fail('Pilih tindakan setujui atau minta perbaikan.', 422);
+        }
+        if ($action === 'revision' && $note === '') {
+            fail('Catatan perbaikan wajib diisi agar petugas tahu yang perlu dibenahi.', 422);
+        }
+        if (strlen($note) > 500) {
+            fail('Catatan maksimal 500 karakter.', 422);
+        }
+
+        $reference = $pdo->prepare('SELECT sampah_id FROM konfirmasi_penyelesaian WHERE id = ? LIMIT 1');
+        $reference->execute([$reviewId]);
+        $reportId = (int) $reference->fetchColumn();
+        if ($reportId < 1) {
+            fail('Konfirmasi penyelesaian tidak ditemukan.', 404);
+        }
+
+        $pdo->beginTransaction();
+        try {
+            $stmt = $pdo->prepare('SELECT * FROM sampah WHERE id = ? FOR UPDATE');
+            $stmt->execute([$reportId]);
+            $report = $stmt->fetch();
+            if (!$report) {
+                $pdo->rollBack();
+                fail('Laporan untuk bukti ini tidak ditemukan.', 404);
+            }
+            $stmt = $pdo->prepare('SELECT * FROM konfirmasi_penyelesaian WHERE id = ? FOR UPDATE');
+            $stmt->execute([$reviewId]);
+            $confirmation = $stmt->fetch();
+            if (!$confirmation) {
+                $pdo->rollBack();
+                fail('Konfirmasi penyelesaian tidak ditemukan.', 404);
+            }
+            if ($confirmation['status'] !== 'menunggu') {
+                $pdo->rollBack();
+                fail('Bukti ini sudah diperiksa admin.', 409);
+            }
+            if ((int) $confirmation['sampah_id'] !== $reportId
+                || !$report || $report['status'] !== 'diangkut') {
+                $pdo->rollBack();
+                fail('Status laporan sudah berubah; muat ulang daftar sebelum memeriksa bukti.', 409);
+            }
+
+            if ($action === 'revision') {
+                $pdo->prepare(
+                    "UPDATE konfirmasi_penyelesaian
+                     SET status = 'perlu_perbaikan', direview_oleh = ?, direview_pada = NOW(), catatan_admin = ?
+                     WHERE id = ?"
+                )->execute([$admin['id'], $note, $reviewId]);
+                $pdo->prepare(
+                    'INSERT INTO riwayat_status (sampah_id, status, diubah_oleh, catatan) VALUES (?, ?, ?, ?)'
+                )->execute([$reportId, 'diangkut', $admin['id'], 'Admin meminta perbaikan bukti: ' . $note]);
+                $pdo->commit();
+                respond(['message' => 'Bukti dikembalikan kepada petugas untuk diperbaiki.']);
+            }
+
+            $workerId = (int) $confirmation['petugas_id'];
+            $vehicleId = (int) ($report['kendaraan_id'] ?? 0);
+            $tpaId = (int) ($report['tpa_id'] ?? 0);
+            $weight = (float) $report['berat_kg'];
+            $stmt = $pdo->prepare('SELECT id FROM petugas WHERE id = ? FOR UPDATE');
+            $stmt->execute([$workerId]);
+            if (!$stmt->fetch()) {
+                $pdo->rollBack();
+                fail('Data petugas tidak ditemukan.', 404);
+            }
+            $stmt = $pdo->prepare('SELECT muatan_kg FROM kendaraan WHERE id = ? FOR UPDATE');
+            $stmt->execute([$vehicleId]);
+            $vehicle = $stmt->fetch();
+            $stmt = $pdo->prepare('SELECT kapasitas_ton, terisi_ton FROM tpa WHERE id = ? FOR UPDATE');
+            $stmt->execute([$tpaId]);
+            $facility = $stmt->fetch();
+            if (!$vehicle || !$facility) {
+                $pdo->rollBack();
+                fail('Data kendaraan atau TPA untuk laporan ini tidak tersedia.', 409);
+            }
+            $stmt = $pdo->prepare(
+                "SELECT COALESCE(SUM(berat_kg), 0) FROM sampah
+                 WHERE tpa_id = ? AND id <> ? AND status IN ('ditugaskan', 'diangkut')"
+            );
+            $stmt->execute([$tpaId, $reportId]);
+            $reservedOtherTon = (float) $stmt->fetchColumn() / 1000;
+            if ((float) $facility['terisi_ton'] + ($weight / 1000) + $reservedOtherTon > (float) $facility['kapasitas_ton']) {
+                $pdo->rollBack();
+                fail('Kapasitas TPA sudah tidak cukup untuk menyetujui laporan ini.', 409);
+            }
+
+            $pdo->prepare('UPDATE kendaraan SET muatan_kg = GREATEST(0, muatan_kg - ?) WHERE id = ?')->execute([$weight, $vehicleId]);
+            $pdo->prepare('UPDATE tpa SET terisi_ton = terisi_ton + ? WHERE id = ?')->execute([$weight / 1000, $tpaId]);
+            $pdo->prepare('UPDATE petugas SET total_ambil = total_ambil + 1 WHERE id = ?')->execute([$workerId]);
+            $pdo->prepare(
+                "UPDATE sampah SET petugas_id = ?, status = 'selesai', sudah_diambil = 1, selesai_pada = NOW() WHERE id = ?"
+            )->execute([$workerId, $reportId]);
+            $pdo->prepare(
+                "UPDATE konfirmasi_penyelesaian
+                 SET status = 'disetujui', direview_oleh = ?, direview_pada = NOW(), catatan_admin = ?
+                 WHERE id = ?"
+            )->execute([$admin['id'], $note, $reviewId]);
+            $pdo->prepare(
+                'INSERT INTO riwayat_status (sampah_id, status, diubah_oleh, catatan) VALUES (?, ?, ?, ?)'
+            )->execute([$reportId, 'selesai', $admin['id'], 'Admin menyetujui bukti foto; penugasan selesai.']);
+            $pdo->commit();
+        } catch (Throwable $error) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $error;
+        }
+        $updated = findReport($pdo, $reportId);
+        respond(['message' => 'Bukti diterima dan penugasan ditandai selesai.', 'report' => reportRow($pdo, $updated, true)]);
+    }
+
     $taskId = $root === 'petugas' && $second === 'tugas' ? intSegment($third) : null;
     if ($taskId !== null && in_array($parts[3] ?? '', ['diangkut', 'selesai'], true) && $method === 'PATCH') {
         $user = requireUser($pdo, 'petugas');
@@ -1065,6 +1710,9 @@ try {
             fail('Akun belum terhubung ke data petugas aktif. Hubungi admin.', 403);
         }
         $action = (string) $parts[3];
+        if ($action === 'selesai') {
+            fail('Tugas tidak dapat diselesaikan langsung. Petugas wajib mengirim foto bukti dan menunggu persetujuan admin.', 410);
+        }
         $pdo->beginTransaction();
         try {
             $stmt = $pdo->prepare('SELECT * FROM sampah WHERE id = ? FOR UPDATE');
@@ -1146,14 +1794,19 @@ try {
         ]);
     }
 
-    if ($root === 'admin' && in_array($second, ['laporan', 'reports'], true)
+    if ((($root === 'petugas' && $second === 'laporan')
+            || ($root === 'admin' && in_array($second, ['laporan', 'reports'], true)))
         && $adminReportId !== null && ($parts[3] ?? '') === 'tugaskan' && $method === 'PATCH') {
-        $admin = requireUser($pdo, 'admin');
-        $workerId = (int) ($payload['worker_id'] ?? $payload['petugas_id'] ?? 0);
+        $actor = requireUser($pdo, 'petugas');
+        $assignedWorker = workerProfile($pdo, (int) $actor['id']);
+        if (!$assignedWorker) {
+            fail('Akun belum terhubung ke data petugas aktif. Hubungi admin.', 403);
+        }
+        $workerId = (int) $assignedWorker['id'];
         $vehicleId = (int) ($payload['vehicle_id'] ?? $payload['kendaraan_id'] ?? 0);
         $tpaId = (int) ($payload['tpa_id'] ?? 0);
-        if ($workerId < 1 || $vehicleId < 1 || $tpaId < 1) {
-            fail('Petugas, kendaraan, dan TPA harus dipilih.', 422);
+        if ($vehicleId < 1 || $tpaId < 1) {
+            fail('Kendaraan dan TPA tujuan harus dipilih.', 422);
         }
         $pdo->beginTransaction();
         try {
@@ -1219,8 +1872,8 @@ try {
             $pdo->prepare('INSERT INTO riwayat_status (sampah_id, status, diubah_oleh, catatan) VALUES (?, "ditugaskan", ?, ?)')
                 ->execute([
                     $adminReportId,
-                    $admin['id'],
-                    'Ditugaskan kepada petugas #' . $workerId
+                    $actor['id'],
+                    'Laporan diterima dan ditugaskan kepada petugas #' . $workerId
                         . ', kendaraan #' . $vehicleId . ', TPA #' . $tpaId,
                 ]);
             $pdo->commit();
@@ -1231,7 +1884,7 @@ try {
             throw $error;
         }
         $updated = findReport($pdo, $adminReportId);
-        respond(['message' => 'Laporan berhasil ditugaskan.', 'report' => reportRow($pdo, $updated, true)]);
+        respond(['message' => 'Laporan diterima dan ditugaskan kepada petugas.', 'report' => reportRow($pdo, $updated, true)]);
     }
 
     if ($root === 'admin' && in_array($second, ['laporan', 'reports'], true) && $adminReportId !== null && $method === 'GET') {
@@ -1248,7 +1901,7 @@ try {
         if (!in_array($method, ['PUT', 'PATCH', 'POST'], true)) {
             fail('Method tidak diizinkan.', 405);
         }
-        $admin = requireUser($pdo, 'admin');
+        $actor = requireUser($pdo, 'petugas');
         $id = $adminReportId ?? $reportId;
         $nextStatus = normalizeStatus((string) ($payload['status'] ?? ''));
         if ($nextStatus === null) {
@@ -1258,25 +1911,16 @@ try {
         if (!$report) {
             fail('Laporan tidak ditemukan.', 404);
         }
-        $currentStatus = (string) $report['status'];
-        $legacyUnassignedCompletion = $currentStatus === 'diproses'
-            && $nextStatus === 'selesai'
-            && $report['petugas_id'] === null
-            && $report['kendaraan_id'] === null
-            && $report['tpa_id'] === null;
-        if (!(($currentStatus === 'menunggu_verifikasi' && $nextStatus === 'ditolak') || $legacyUnassignedCompletion)) {
-            fail('Gunakan alur verifikasi, penugasan, lalu aksi petugas agar kapasitas dan riwayat tetap akurat.', 409);
+        if ($report['status'] !== 'menunggu_verifikasi' || $nextStatus !== 'ditolak') {
+            fail('Petugas hanya dapat menolak laporan yang masih menunggu verifikasi.', 409);
         }
         $note = trim((string) ($payload['note'] ?? $payload['catatan'] ?? ''));
         $pdo->beginTransaction();
         try {
-            $finishedAt = $nextStatus === 'selesai' ? date('Y-m-d H:i:s') : null;
-            $pdo->prepare(
-                'UPDATE sampah SET status = ?, sudah_diambil = ?, selesai_pada = ? WHERE id = ?'
-            )->execute([$nextStatus, $nextStatus === 'selesai' ? 1 : 0, $finishedAt, $id]);
+            $pdo->prepare('UPDATE sampah SET status = ? WHERE id = ?')->execute([$nextStatus, $id]);
             $pdo->prepare(
                 'INSERT INTO riwayat_status (sampah_id, status, diubah_oleh, catatan) VALUES (?, ?, ?, ?)'
-            )->execute([$id, $nextStatus, $admin['id'], $note]);
+            )->execute([$id, $nextStatus, $actor['id'], $note]);
             $pdo->commit();
         } catch (Throwable $error) {
             $pdo->rollBack();
@@ -1288,7 +1932,7 @@ try {
 
     if (($root === 'users' && $second === '' && $method === 'GET')
         || ($root === 'admin' && $second === 'users' && $third === '' && $method === 'GET')) {
-        requireUser($pdo, 'admin');
+        requireUser($pdo, 'petugas');
         $users = adminUserRows($pdo);
         respond(['users' => $users, 'data' => $users]);
     }
@@ -1296,10 +1940,7 @@ try {
     $userId = intSegment($third);
     if ($root === 'admin' && $second === 'users' && $userId !== null && in_array($parts[3] ?? '', ['toggle', 'status'], true)
         && in_array($method, ['PUT', 'PATCH', 'POST'], true)) {
-        $admin = requireUser($pdo, 'admin');
-        if ($userId === (int) $admin['id']) {
-            fail('Akun admin yang sedang dipakai tidak dapat dinonaktifkan.', 422);
-        }
+        requireUser($pdo, 'petugas');
         $target = $pdo->prepare("SELECT id, role, aktif FROM users WHERE id = ? LIMIT 1");
         $target->execute([$userId]);
         $targetUser = $target->fetch();
@@ -1310,6 +1951,29 @@ try {
         $pdo->prepare('UPDATE users SET aktif = ? WHERE id = ?')->execute([$active ? 1 : 0, $userId]);
         $pdo->prepare('DELETE FROM auth_tokens WHERE user_id = ?')->execute([$userId]);
         respond(['message' => $active ? 'Akun user diaktifkan.' : 'Akun user dinonaktifkan.', 'active' => $active]);
+    }
+
+    if ($root === 'admin' && $second === 'users' && $userId !== null && ($parts[3] ?? '') === '' && $method === 'DELETE') {
+        requireUser($pdo, 'petugas');
+        $target = $pdo->prepare('SELECT id, role FROM users WHERE id = ? LIMIT 1');
+        $target->execute([$userId]);
+        $targetUser = $target->fetch();
+        if (!$targetUser || $targetUser['role'] !== 'user') {
+            fail('Akun warga tidak ditemukan.', 404);
+        }
+        $pdo->beginTransaction();
+        try {
+            $pdo->prepare('DELETE FROM auth_tokens WHERE user_id = ?')->execute([$userId]);
+            $pdo->prepare('UPDATE sampah SET id_user = NULL WHERE id_user = ?')->execute([$userId]);
+            $pdo->prepare('DELETE FROM users WHERE id = ? AND role = "user"')->execute([$userId]);
+            $pdo->commit();
+        } catch (Throwable $error) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $error;
+        }
+        respond(['message' => 'Akun warga dihapus. Laporan tetap tersimpan tanpa identitas akun.']);
     }
 
     if (($root === 'admin' && in_array($second, ['statistik', 'statistics'], true) && $third === '')

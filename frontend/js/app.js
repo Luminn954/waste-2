@@ -87,11 +87,11 @@ function showAuth(view = "login", message = "", type = "error") {
   $("#show-login").classList.toggle("is-active", view === "login");
   $("#show-register").classList.toggle("is-active", view === "register");
   $("#auth-title").textContent =
-    view === "login" ? "Masuk ke akunmu" : "Buat akun user";
+    view === "login" ? "Masuk ke Portal Warga" : "Daftar akun warga";
   $("#auth-subtitle").textContent =
     view === "login"
-      ? "Pantau laporan kebersihan di sekitar kamu."
-      : "Daftar sekali, lalu ikut menjaga lingkungan bersama.";
+      ? "Pantau laporan kebersihan di sekitarmu."
+      : "Buat akun untuk mengirim laporan dan memantau penanganannya.";
   setMessage(
     view === "login" ? "login-message" : "register-message",
     message,
@@ -146,6 +146,23 @@ function statusLabel(status) {
     status ||
     "Belum ada status"
   );
+}
+
+function compactReportTimeline(entries) {
+  const stageByStatus = {
+    menunggu_verifikasi: { key: "received", order: 0, label: "Laporan diterima" },
+    diproses: { key: "assigned", order: 1, label: "Petugas ditugaskan" },
+    ditugaskan: { key: "assigned", order: 1, label: "Petugas ditugaskan" },
+    diangkut: { key: "transported", order: 2, label: "Pengangkutan ke TPA" },
+    selesai: { key: "completed", order: 3, label: "Selesai di TPA" },
+    ditolak: { key: "rejected", order: 4, label: "Laporan ditolak" },
+  };
+  const stages = new Map();
+  entries.forEach((item) => {
+    const stage = stageByStatus[item.status];
+    if (stage) stages.set(stage.key, { ...item, ...stage });
+  });
+  return [...stages.values()].sort((a, b) => a.order - b.order);
 }
 
 function formatDate(value, withTime = false) {
@@ -258,17 +275,25 @@ function stopPolling() {
   state.poll = null;
 }
 
-function openReportModal(id) {
+function openReportModal(id, showFullTimeline = false) {
   const report = state.reports.find((item) => Number(item.id) === Number(id));
   if (!report) return;
   const timeline = report.timeline || report.riwayat || [];
+  const compactTimeline = compactReportTimeline(timeline);
+  const visibleTimeline = showFullTimeline ? timeline : compactTimeline;
   const photo = safeUrl(report.photo || report.foto);
+  const timelineMarkup = visibleTimeline.length
+    ? visibleTimeline.map((item) => `<div class="timeline-item"><i></i><div><strong>${escapeHtml(item.compactLabel || item.status_label || statusLabel(item.status))}</strong><small>${formatDate(item.tanggal_update, true)} · ${escapeHtml(item.changed_by || "Sistem")}</small>${item.note || item.catatan ? `<p>${escapeHtml(item.note || item.catatan)}</p>` : ""}</div></div>`).join("")
+    : `<p class="muted-copy">Riwayat status belum tersedia.</p>`;
+  const timelineToggle = timeline.length > compactTimeline.length
+    ? `<button class="text-button timeline-toggle" type="button" data-toggle-report-history data-report-id="${Number(id)}" aria-expanded="${showFullTimeline}">${showFullTimeline ? "Ringkas progres" : `Lihat riwayat lengkap · ${timeline.length}`}</button>`
+    : "";
   $("#modal-content").innerHTML =
     `<div class="modal-heading"><span class="eyebrow">DETAIL LAPORAN</span><h2>${escapeHtml(report.code || report.kode_laporan)}</h2><p>${escapeHtml(report.type || report.jenis)} · ${formatDate(report.report_date || report.tanggal_lapor)}</p></div>
     <div class="modal-status">${statusBadge(report)}<span>${escapeHtml(report.location || report.lokasi)}</span></div>
     ${photo ? `<a class="modal-photo" href="${escapeHtml(photo)}" target="_blank" rel="noreferrer"><img src="${escapeHtml(photo)}" alt="Foto laporan"></a>` : ""}
     <div class="detail-grid"><div><small>Lokasi</small><strong>${escapeHtml(report.location || report.lokasi)}</strong></div><div><small>Berat perkiraan</small><strong>${Number(report.weight_kg || report.berat_kg || 0).toLocaleString("id-ID")} kg</strong></div><div class="detail-full"><small>Deskripsi</small><strong>${escapeHtml(report.description || report.deskripsi || "Tidak ada deskripsi tambahan.")}</strong></div></div>
-    <div class="timeline"><span class="eyebrow">PERJALANAN STATUS</span>${timeline.length ? timeline.map((item) => `<div class="timeline-item"><i></i><div><strong>${escapeHtml(item.status_label || statusLabel(item.status))}</strong><small>${formatDate(item.tanggal_update, true)} · ${escapeHtml(item.changed_by || "Sistem")}</small>${item.note || item.catatan ? `<p>${escapeHtml(item.note || item.catatan)}</p>` : ""}</div></div>`).join("") : `<p class="muted-copy">Riwayat status belum tersedia.</p>`}</div>`;
+    <div class="timeline"><span class="eyebrow">PROGRES LAPORAN · ${showFullTimeline ? "RIWAYAT LENGKAP" : "TAHAP UTAMA"}</span>${timelineMarkup}${timelineToggle}</div>`;
   $("#report-modal").hidden = false;
   requestAnimationFrame(() => $("#report-modal").classList.add("is-open"));
 }
@@ -424,7 +449,19 @@ function bindEvents() {
   $("#user-menu").addEventListener("click", () => goPage("profile"));
 
   document.addEventListener("click", (event) => {
+    const historyToggle = event.target.closest("[data-toggle-report-history]");
+    if (historyToggle) {
+      openReportModal(
+        historyToggle.dataset.reportId,
+        historyToggle.getAttribute("aria-expanded") !== "true",
+      );
+      return;
+    }
     const pageLink = event.target.closest("[data-page-link]");
+    const quickCategory = event.target.closest("[data-report-type]");
+    if (quickCategory) {
+      $("#report-type").value = quickCategory.dataset.reportType;
+    }
     if (pageLink) {
       event.preventDefault();
       goPage(pageLink.dataset.pageLink);
@@ -447,7 +484,12 @@ function bindEvents() {
     button.addEventListener("click", () => {
       const input = document.getElementById(button.dataset.target);
       input.type = input.type === "password" ? "text" : "password";
-      button.textContent = input.type === "password" ? "○" : "●";
+      const isVisible = input.type === "text";
+      button.classList.toggle("is-visible", isVisible);
+      button.setAttribute(
+        "aria-label",
+        isVisible ? "Sembunyikan password" : "Tampilkan password",
+      );
     }),
   );
   $("#report-photo").addEventListener("change", () => {

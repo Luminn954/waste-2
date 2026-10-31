@@ -12,10 +12,10 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="css/style.css?v=20260927" />
+    <link rel="stylesheet" href="css/style.css?v=20261026-compact-final5" />
   </head>
   <body>
     <div id="toast" class="toast" role="status"></div>
@@ -47,8 +47,8 @@
         </div>
         <div class="auth-heading">
           <span class="eyebrow">SELAMAT DATANG</span>
-          <h2 id="auth-title">Masuk ke akunmu</h2>
-          <p id="auth-subtitle">Pantau laporan kebersihan di sekitar kamu.</p>
+          <h2 id="auth-title">Masuk ke Portal Warga</h2>
+          <p id="auth-subtitle">Pantau laporan kebersihan di sekitarmu.</p>
         </div>
 
         <div class="auth-tabs" role="tablist">
@@ -85,13 +85,13 @@
                 data-target="login-password"
                 aria-label="Tampilkan password"
               >
-                ○
+                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>
               </button></span
             >
           </label>
           <p id="login-message" class="form-message" role="alert"></p>
           <button class="primary-button full" type="submit">
-            <span>Masuk ke portal</span><b>→</b>
+            <span>Masuk ke Portal Warga</span><b>→</b>
           </button>
           <p class="demo-hint">
             Demo user: <strong>user</strong> / <strong>12345</strong>
@@ -141,13 +141,13 @@
                 data-target="register-password"
                 aria-label="Tampilkan password"
               >
-                ○
+                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>
               </button></span
             >
           </label>
           <p id="register-message" class="form-message" role="alert"></p>
           <button class="primary-button full" type="submit">
-            <span>Simpan akun user</span><b>→</b>
+            <span>Buat akun warga</span><b>→</b>
           </button>
         </form>
 
@@ -169,13 +169,13 @@
             data-page-link="dashboard"
             type="button"
           >
-            <span>⌂</span> Ringkasan
+            <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3.5 10.5 8.5-7 8.5 7"/><path d="M5.5 9v11h13V9M9.5 20v-6h5v6"/></svg></span> Ringkasan
           </button>
           <button class="nav-item" data-page-link="reports" type="button">
-            <span>＋</span> Laporan saya
+            <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3.5h10a2 2 0 0 1 2 2v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-14a2 2 0 0 1 2-2Z"/><path d="M9 8h6M9 12h6M12 15v4M10 17h4"/></svg></span> Laporan saya
           </button>
           <button class="nav-item" data-page-link="profile" type="button">
-            <span>◯</span> Profil
+            <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.2"/><path d="M5 20c.4-3.2 3-5.2 7-5.2s6.6 2 7 5.2"/></svg></span> Profil
           </button>
         </nav>
         <div class="topbar-actions">
@@ -209,8 +209,7 @@
             <div class="hero-copy">
               <span class="eyebrow">PORTAL WARGA / HARI INI</span>
               <h1>
-                Hai, <span id="hero-name">User</span>
-                <span class="wave-emoji">👋</span>
+                Selamat datang, <span id="hero-name">User</span>
               </h1>
               <p>
                 Terima kasih sudah ikut menjaga lingkungan. Satu laporanmu
@@ -232,6 +231,34 @@
               <div class="hero-spark spark-a">✦</div>
               <div class="hero-spark spark-b">•</div>
             </div>
+          </div>
+
+          <div class="section-heading category-heading">
+            <div>
+              <span class="eyebrow">MULAI DARI JENISNYA</span>
+              <h2>Kategori sampah</h2>
+            </div>
+            <button class="text-button" data-page-link="reports" type="button">
+              Lapor sekarang <b>→</b>
+            </button>
+          </div>
+          <div class="category-grid" aria-label="Pilih kategori untuk membuat laporan">
+            <button class="category-tile" data-page-link="reports" data-report-type="Organik" type="button">
+              <span class="category-icon category-organic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 4.5c-7.4.2-12.7 2.4-13.9 7.1-.8 3.1 1.5 5.5 4.3 5.2 4.8-.5 7.8-5.8 9.6-12.3Z"/><path d="M4 20c2.2-5.4 5.7-8.5 10.2-10.6"/></svg></span>
+              <span>Organik</span>
+            </button>
+            <button class="category-tile" data-page-link="reports" data-report-type="Plastik" type="button">
+              <span class="category-icon category-plastic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6v3l2 2v11a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V8l2-2V3Z"/><path d="M9 6h6M8 11h8"/></svg></span>
+              <span>Plastik</span>
+            </button>
+            <button class="category-tile" data-page-link="reports" data-report-type="Kertas" type="button">
+              <span class="category-icon category-paper" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l5 5v13H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg></span>
+              <span>Kertas</span>
+            </button>
+            <button class="category-tile" data-page-link="reports" data-report-type="Elektronik" type="button">
+              <span class="category-icon category-electronic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m13 2-8 12h6l-1 8 9-13h-6l1-7Z"/></svg></span>
+              <span>Elektronik</span>
+            </button>
           </div>
 
           <div class="section-heading">
@@ -438,10 +465,10 @@
           <div class="page-heading">
             <div>
               <span class="eyebrow">AKUN SAYA</span>
-              <h1>Profil user</h1>
+              <h1>Profil warga</h1>
               <p>Pastikan data kontakmu tetap terbaru.</p>
             </div>
-            <div class="heading-accent">◯</div>
+            <div class="heading-accent" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.2"/><path d="M5 20c.4-3.2 3-5.2 7-5.2s6.6 2 7 5.2"/></svg></div>
           </div>
           <div class="profile-layout">
             <article class="surface-card profile-card">
@@ -514,6 +541,6 @@
         <div id="modal-content"></div>
       </article>
     </div>
-    <script src="js/app.js?v=20260927" defer></script>
+    <script src="js/app.js?v=20261026-compact-final5" defer></script>
   </body>
 </html>

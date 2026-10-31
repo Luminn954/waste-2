@@ -7,6 +7,10 @@
 *.key
 *.p12
 
+# Local APK builds and LAN update manifest
+/updates/*.apk
+/updates/latest.json
+
 # User-uploaded content: keep rules, never commit real reports/photos
 /backend-php/uploads/*
 !/backend-php/uploads/.htaccess

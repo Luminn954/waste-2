@@ -130,6 +130,18 @@ function initialiseSchema(PDO $pdo): void
             INDEX idx_sampah_type (jenis),
             INDEX idx_sampah_created (dibuat_pada)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+        "CREATE TABLE IF NOT EXISTS laporan_arsip (
+            sampah_id BIGINT UNSIGNED PRIMARY KEY,
+            diarsipkan_oleh BIGINT UNSIGNED NOT NULL,
+            diarsipkan_pada DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_laporan_arsip_created (diarsipkan_pada)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+        "CREATE TABLE IF NOT EXISTS catatan_admin_arsip (
+            sampah_id BIGINT UNSIGNED PRIMARY KEY,
+            diarsipkan_oleh BIGINT UNSIGNED NOT NULL,
+            diarsipkan_pada DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_catatan_admin_arsip_created (diarsipkan_pada)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
         "CREATE TABLE IF NOT EXISTS riwayat_status (
             id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             sampah_id BIGINT UNSIGNED NOT NULL,
@@ -175,6 +187,20 @@ function initialiseSchema(PDO $pdo): void
             catatan_json LONGTEXT NULL,
             peringatan_json LONGTEXT NULL,
             dibuat_pada DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+        "CREATE TABLE IF NOT EXISTS konfirmasi_penyelesaian (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            sampah_id BIGINT UNSIGNED NOT NULL UNIQUE,
+            petugas_id BIGINT UNSIGNED NOT NULL,
+            foto_bukti VARCHAR(255) NOT NULL,
+            catatan_petugas VARCHAR(500) NOT NULL DEFAULT '',
+            status VARCHAR(30) NOT NULL DEFAULT 'menunggu',
+            direview_oleh BIGINT UNSIGNED NULL,
+            dikirim_pada DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            direview_pada DATETIME NULL,
+            catatan_admin VARCHAR(500) NOT NULL DEFAULT '',
+            INDEX idx_completion_status (status),
+            INDEX idx_completion_worker (petugas_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
     ];
 

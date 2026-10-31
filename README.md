@@ -89,15 +89,13 @@ Sebelum Client ID server dipasang, login password lama tetap tersedia agar admin
 
 Tabel pendukung seperti `petugas`, `kendaraan`, `tpa`, dan `laporan_harian` tetap dipertahankan supaya database XAMPP lama tidak kehilangan data saat migrasi. Setiap perubahan skema baru harus ditambahkan ke bootstrap runtime dan referensi `backend-php/database/schema.sql`; untuk data yang sudah dipakai, gunakan migrasi yang bisa dijalankan berulang tanpa menghapus data.
 
-## Catatan Android
+## Android lewat Wi-Fi yang sama
 
-File `app/src/main/java/com/uoi/pratikumwithbunafla/data/remote/SmartWasteApi.kt` memakai:
+Aplikasi Android mengakses data melalui REST API PHP di Apache; aplikasi tidak terhubung langsung ke MySQL. Untuk HP fisik, jalankan `scripts/auto-deploy-phone.ps1` dari folder proyek Android. Skrip mendeteksi IP Wi-Fi laptop, membangun APK dengan alamat API LAN, lalu menerbitkan APK dan `updates/latest.json` ke folder web ini. Jika ada satu HP tersambung USB, APK juga dipasang otomatis.
 
-```text
-http://10.0.2.2:8080/Waste2/backend-php/index.php
-```
+Perangkat perlu berada di jaringan lokal yang sama. Jangan membuka port MySQL `3306` ke Wi-Fi. Firewall laptop saat ini memiliki aturan Apache Public yang terlalu lebar (TCP/UDP, semua port dan alamat); administrator sebaiknya menggantinya dengan aturan khusus TCP `8080` dari `LocalSubnet` saja. Perubahan aturan firewall memerlukan Administrator.
 
-Jika memakai HP fisik, ganti alamat tersebut dengan IP Wi-Fi laptop, misalnya `http://192.168.0.111:8080/Waste2/backend-php/index.php`, dan pastikan firewall mengizinkan Apache.
+APK yang sudah memiliki pemeriksa update akan mengecek versi saat aplikasi dibuka dan berkala ketika aplikasi aktif. Android tetap meminta pengguna menyetujui pemasangan APK; versi lama perlu dipasang manual sekali agar mendapat fitur pemeriksaan update. Gunakan DHCP reservation di router supaya IP laptop tetap sama.
 
 ## Validasi lokal
 
