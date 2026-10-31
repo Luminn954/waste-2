@@ -249,7 +249,8 @@ function reportQuery(
     ?string $status = null,
     ?string $search = null,
     ?int $workerId = null,
-    bool $includeArchived = false
+    bool $includeArchived = false,
+    ?int $rejectedByUserId = null
 ): array
 {
     $where = [];
@@ -262,8 +263,19 @@ function reportQuery(
         $params[] = $userId;
     }
     if ($workerId !== null) {
-        $where[] = 's.petugas_id = ?';
-        $params[] = $workerId;
+        if ($rejectedByUserId !== null) {
+            $where[] = '(s.petugas_id = ? OR EXISTS (
+                SELECT 1 FROM riwayat_status rejected_by_worker
+                WHERE rejected_by_worker.sampah_id = s.id
+                    AND rejected_by_worker.diubah_oleh = ?
+                    AND rejected_by_worker.status = "ditolak"
+            ))';
+            $params[] = $workerId;
+            $params[] = $rejectedByUserId;
+        } else {
+            $where[] = 's.petugas_id = ?';
+            $params[] = $workerId;
+        }
     }
     if ($status !== null) {
         if ($status === 'diproses') {
@@ -1512,9 +1524,17 @@ try {
         if (!$worker) {
             fail('Akun belum terhubung ke data petugas aktif. Hubungi admin.', 403);
         }
-        $rows = reportQuery($pdo, null, null, null, (int) $worker['id'], true);
+        $rows = reportQuery(
+            $pdo,
+            null,
+            null,
+            null,
+            (int) $worker['id'],
+            true,
+            (int) $user['id']
+        );
         $rows = array_values(array_filter($rows, static fn(array $row): bool =>
-            in_array((string) $row['status'], ['ditugaskan', 'diangkut', 'selesai'], true)
+            in_array((string) $row['status'], ['ditugaskan', 'diangkut', 'selesai', 'ditolak'], true)
         ));
         $tasks = array_map(fn(array $row): array => reportRow($pdo, $row, true), $rows);
         respond(['tasks' => $tasks, 'data' => $tasks, 'worker' => [
