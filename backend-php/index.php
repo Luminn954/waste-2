@@ -1627,11 +1627,106 @@ try {
         $rows = array_values(array_filter($rows, static fn(array $row): bool =>
             in_array((string) $row['status'], ['ditugaskan', 'diangkut', 'selesai', 'ditolak'], true)
         ));
+        $archivedStmt = $pdo->prepare(
+            'SELECT sampah_id FROM petugas_laporan_arsip WHERE user_id = ?'
+        );
+        $archivedStmt->execute([$user['id']]);
+        $archivedIds = array_fill_keys(
+            array_map('intval', $archivedStmt->fetchAll(PDO::FETCH_COLUMN)),
+            true
+        );
+        $rows = array_values(array_filter($rows, static fn(array $row): bool =>
+            !isset($archivedIds[(int) $row['id']])
+        ));
         $tasks = array_map(fn(array $row): array => reportRow($pdo, $row, true), $rows);
         respond(['tasks' => $tasks, 'data' => $tasks, 'worker' => [
             'id' => (int) $worker['id'], 'name' => (string) $worker['nama'],
             'zone' => (string) $worker['zona_tugas'], 'total_pickups' => (int) $worker['total_ambil'],
         ]]);
+    }
+
+    if ($root === 'petugas' && $second === 'arsip-tugas' && $third === '' && $method === 'GET') {
+        $user = requireUser($pdo, 'petugas');
+        $worker = workerProfile($pdo, (int) $user['id']);
+        if (!$worker) {
+            fail('Akun belum terhubung ke data petugas aktif. Hubungi admin.', 403);
+        }
+        $rows = reportQuery($pdo, null, null, null, (int) $worker['id'], true, (int) $user['id']);
+        $eligibleRows = [];
+        foreach ($rows as $row) {
+            if (in_array((string) $row['status'], ['selesai', 'ditolak'], true)) {
+                $eligibleRows[(int) $row['id']] = $row;
+            }
+        }
+        $stmt = $pdo->prepare(
+            'SELECT pa.sampah_id, pa.diarsipkan_pada AS archived_at, u.nama AS archived_by
+             FROM petugas_laporan_arsip pa
+             JOIN users u ON u.id = pa.user_id
+             WHERE pa.user_id = ? ORDER BY pa.diarsipkan_pada DESC'
+        );
+        $stmt->execute([$user['id']]);
+        $archives = [];
+        foreach ($stmt->fetchAll() as $archive) {
+            $reportId = (int) $archive['sampah_id'];
+            if (!isset($eligibleRows[$reportId])) {
+                continue;
+            }
+            $archives[] = [
+                'report' => reportRow($pdo, $eligibleRows[$reportId], true),
+                'archived_at' => (string) $archive['archived_at'],
+                'archived_by' => (string) $archive['archived_by'],
+            ];
+        }
+        respond(['archived_tasks' => $archives, 'data' => $archives]);
+    }
+
+    if ($root === 'petugas' && $second === 'tugas'
+        && ($taskId = intSegment($third)) !== null
+        && ($parts[3] ?? '') === 'arsip' && $method === 'POST') {
+        $user = requireUser($pdo, 'petugas');
+        $worker = workerProfile($pdo, (int) $user['id']);
+        if (!$worker) {
+            fail('Akun belum terhubung ke data petugas aktif. Hubungi admin.', 403);
+        }
+        $stmt = $pdo->prepare('SELECT id, status, petugas_id FROM sampah WHERE id = ? FOR UPDATE');
+        $stmt->execute([$taskId]);
+        $report = $stmt->fetch();
+        if (!$report) {
+            fail('Riwayat tugas tidak ditemukan.', 404);
+        }
+        $ownsReport = (int) ($report['petugas_id'] ?? 0) === (int) $worker['id'];
+        if (!$ownsReport) {
+            $decision = $pdo->prepare(
+                'SELECT 1 FROM riwayat_status
+                 WHERE sampah_id = ? AND diubah_oleh = ? AND status = "ditolak" LIMIT 1'
+            );
+            $decision->execute([$taskId, $user['id']]);
+            $ownsReport = (bool) $decision->fetchColumn();
+        }
+        if (!$ownsReport) {
+            fail('Riwayat ini bukan bagian dari pekerjaan akun Petugas tersebut.', 403);
+        }
+        if (!in_array((string) $report['status'], ['selesai', 'ditolak'], true)) {
+            fail('Hanya tugas selesai atau laporan ditolak yang bisa diarsipkan.', 409);
+        }
+        $pdo->prepare(
+            'INSERT IGNORE INTO petugas_laporan_arsip (sampah_id, user_id) VALUES (?, ?)'
+        )->execute([$taskId, $user['id']]);
+        respond(['message' => 'Catatan tugas dipindahkan ke Arsip Petugas dan dapat dipulihkan.']);
+    }
+
+    if ($root === 'petugas' && $second === 'arsip-tugas'
+        && ($taskId = intSegment($third)) !== null
+        && ($parts[3] ?? '') === 'pulihkan' && $method === 'PATCH') {
+        $user = requireUser($pdo, 'petugas');
+        $stmt = $pdo->prepare(
+            'DELETE FROM petugas_laporan_arsip WHERE sampah_id = ? AND user_id = ?'
+        );
+        $stmt->execute([$taskId, $user['id']]);
+        if ($stmt->rowCount() === 0) {
+            fail('Catatan tugas tidak ditemukan di Arsip Petugas.', 404);
+        }
+        respond(['message' => 'Catatan tugas dikembalikan ke riwayat aktif.']);
     }
 
     if ($root === 'petugas' && $second === 'tugas'

@@ -136,6 +136,13 @@ function initialiseSchema(PDO $pdo): void
             diarsipkan_pada DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             INDEX idx_laporan_arsip_created (diarsipkan_pada)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+        "CREATE TABLE IF NOT EXISTS petugas_laporan_arsip (
+            sampah_id BIGINT UNSIGNED NOT NULL,
+            user_id BIGINT UNSIGNED NOT NULL,
+            diarsipkan_pada DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (sampah_id, user_id),
+            INDEX idx_petugas_arsip_user (user_id, diarsipkan_pada)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
         "CREATE TABLE IF NOT EXISTS catatan_admin_arsip (
             sampah_id BIGINT UNSIGNED PRIMARY KEY,
             diarsipkan_oleh BIGINT UNSIGNED NOT NULL,
