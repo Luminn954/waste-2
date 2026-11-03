@@ -177,6 +177,31 @@ function initialiseSchema(PDO $pdo): void
             rute VARCHAR(500) NOT NULL DEFAULT '',
             dibuat_pada DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+        "CREATE TABLE IF NOT EXISTS kendaraan_perbaikan (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            kendaraan_id BIGINT UNSIGNED NOT NULL,
+            petugas_user_id BIGINT UNSIGNED NOT NULL,
+            penyebab VARCHAR(180) NOT NULL,
+            kronologi TEXT NOT NULL,
+            status VARCHAR(32) NOT NULL DEFAULT 'menunggu_persetujuan',
+            progres_terakhir VARCHAR(800) NOT NULL DEFAULT '',
+            catatan_admin VARCHAR(800) NOT NULL DEFAULT '',
+            disetujui_oleh BIGINT UNSIGNED NULL,
+            dibuat_pada DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            diperbarui_pada DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_repair_vehicle_status (kendaraan_id, status),
+            INDEX idx_repair_status_date (status, dibuat_pada),
+            INDEX idx_repair_reporter (petugas_user_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+        "CREATE TABLE IF NOT EXISTS kendaraan_perbaikan_riwayat (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            perbaikan_id BIGINT UNSIGNED NOT NULL,
+            actor_user_id BIGINT UNSIGNED NULL,
+            aksi VARCHAR(40) NOT NULL,
+            catatan VARCHAR(800) NOT NULL DEFAULT '',
+            dibuat_pada DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_repair_history (perbaikan_id, id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
         "CREATE TABLE IF NOT EXISTS tpa (
             id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             nama VARCHAR(120) NOT NULL,

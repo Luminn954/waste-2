@@ -646,6 +646,92 @@ function adminVehicleRows(PDO $pdo): array
     ], $rows);
 }
 
+function vehicleRepairRows(PDO $pdo): array
+{
+    $rows = $pdo->query(
+        "SELECT r.*, k.plat_nomor,
+                COALESCE(p.nama, u.nama, 'Petugas') AS pelapor,
+                CASE WHEN r.status IN ('selesai', 'ditolak') THEN 0 ELSE
+                    (SELECT COUNT(*) FROM sampah s
+                     WHERE s.kendaraan_id = r.kendaraan_id AND s.status IN ('ditugaskan', 'diangkut'))
+                END AS tugas_aktif
+         FROM kendaraan_perbaikan r
+         JOIN kendaraan k ON k.id = r.kendaraan_id
+         LEFT JOIN users u ON u.id = r.petugas_user_id
+         LEFT JOIN petugas p ON p.user_id = r.petugas_user_id
+         ORDER BY CASE r.status
+             WHEN 'menunggu_persetujuan' THEN 0
+             WHEN 'menunggu_pemeriksaan' THEN 1
+             WHEN 'perlu_perbaikan' THEN 2
+             WHEN 'dalam_perbaikan' THEN 3
+             WHEN 'disetujui' THEN 4
+             ELSE 5 END,
+             r.diperbarui_pada DESC"
+    )->fetchAll();
+    if (!$rows) {
+        return [];
+    }
+
+    $ids = array_map(static fn(array $row): int => (int) $row['id'], $rows);
+    $slots = implode(',', array_fill(0, count($ids), '?'));
+    $historyStmt = $pdo->prepare(
+        "SELECT h.perbaikan_id, h.aksi, h.catatan, h.dibuat_pada,
+                COALESCE(u.nama, 'Sistem') AS pelaku,
+                COALESCE(u.role, 'sistem') AS role
+         FROM kendaraan_perbaikan_riwayat h
+         LEFT JOIN users u ON u.id = h.actor_user_id
+         WHERE h.perbaikan_id IN ($slots) ORDER BY h.id ASC"
+    );
+    $historyStmt->execute($ids);
+    $eventsByRepair = [];
+    foreach ($historyStmt->fetchAll() as $event) {
+        $eventsByRepair[(int) $event['perbaikan_id']][] = [
+            'action' => (string) $event['aksi'],
+            'note' => (string) $event['catatan'],
+            'actor_name' => (string) $event['pelaku'],
+            'actor_role' => (string) $event['role'],
+            'created_at' => (string) $event['dibuat_pada'],
+        ];
+    }
+
+    $labels = [
+        'menunggu_persetujuan' => 'Menunggu persetujuan',
+        'disetujui' => 'Disetujui',
+        'dalam_perbaikan' => 'Dalam perbaikan',
+        'menunggu_pemeriksaan' => 'Menunggu pemeriksaan',
+        'perlu_perbaikan' => 'Perlu perbaikan',
+        'selesai' => 'Selesai',
+        'ditolak' => 'Ditolak',
+    ];
+    return array_map(static function (array $row) use ($eventsByRepair, $labels): array {
+        $id = (int) $row['id'];
+        return [
+            'id' => $id,
+            'vehicle_id' => (int) $row['kendaraan_id'],
+            'plate' => (string) $row['plat_nomor'],
+            'reporter_id' => (int) $row['petugas_user_id'],
+            'reporter_name' => (string) $row['pelapor'],
+            'cause' => (string) $row['penyebab'],
+            'details' => (string) $row['kronologi'],
+            'status' => (string) $row['status'],
+            'status_label' => $labels[(string) $row['status']] ?? (string) $row['status'],
+            'progress_note' => (string) $row['progres_terakhir'],
+            'admin_note' => (string) $row['catatan_admin'],
+            'active_task_count' => (int) $row['tugas_aktif'],
+            'reported_at' => (string) $row['dibuat_pada'],
+            'updated_at' => (string) $row['diperbarui_pada'],
+            'timeline' => $eventsByRepair[$id] ?? [],
+        ];
+    }, $rows);
+}
+
+function recordVehicleRepairEvent(PDO $pdo, int $repairId, ?int $actorId, string $action, string $note): void
+{
+    $pdo->prepare(
+        'INSERT INTO kendaraan_perbaikan_riwayat (perbaikan_id, actor_user_id, aksi, catatan) VALUES (?, ?, ?, ?)'
+    )->execute([$repairId, $actorId, $action, $note]);
+}
+
 function adminTpaRows(PDO $pdo): array
 {
     $rows = $pdo->query(
@@ -1240,6 +1326,191 @@ try {
         respond(['dashboard' => $summary, 'data' => $summary]);
     }
 
+    if (in_array($root, ['admin', 'petugas'], true) && $second === 'perbaikan' && $third === '' && $method === 'GET') {
+        requireUser($pdo, $root);
+        $repairs = vehicleRepairRows($pdo);
+        respond(['repairs' => $repairs, 'data' => $repairs]);
+    }
+
+    $damagedVehicleId = $root === 'petugas' && $second === 'kendaraan'
+        && ($parts[3] ?? '') === 'kerusakan' ? intSegment($third) : null;
+    if ($damagedVehicleId !== null && $method === 'POST') {
+        $actor = requireUser($pdo, 'petugas');
+        $cause = trim((string) ($payload['cause'] ?? $payload['penyebab'] ?? ''));
+        $details = trim((string) ($payload['details'] ?? $payload['kronologi'] ?? ''));
+        if (mb_strlen($cause) < 3 || mb_strlen($cause) > 180 || mb_strlen($details) < 8 || mb_strlen($details) > 4000) {
+            fail('Isi penyebab kerusakan dan kronologi secara jelas (8–4.000 karakter).', 422);
+        }
+        $pdo->beginTransaction();
+        try {
+            $stmt = $pdo->prepare('SELECT id, kondisi FROM kendaraan WHERE id = ? FOR UPDATE');
+            $stmt->execute([$damagedVehicleId]);
+            $vehicle = $stmt->fetch();
+            if (!$vehicle) {
+                $pdo->rollBack();
+                fail('Kendaraan tidak ditemukan.', 404);
+            }
+            $stmt = $pdo->prepare(
+                "SELECT id FROM kendaraan_perbaikan WHERE kendaraan_id = ?
+                 AND status IN ('menunggu_persetujuan', 'disetujui', 'dalam_perbaikan', 'menunggu_pemeriksaan', 'perlu_perbaikan')
+                 LIMIT 1 FOR UPDATE"
+            );
+            $stmt->execute([$damagedVehicleId]);
+            if ($stmt->fetch()) {
+                $pdo->rollBack();
+                fail('Masih ada proses perbaikan aktif untuk kendaraan ini.', 409);
+            }
+            $pdo->prepare("UPDATE kendaraan SET kondisi = 'Rusak' WHERE id = ?")->execute([$damagedVehicleId]);
+            $pdo->prepare(
+                'INSERT INTO kendaraan_perbaikan (kendaraan_id, petugas_user_id, penyebab, kronologi) VALUES (?, ?, ?, ?)'
+            )->execute([$damagedVehicleId, $actor['id'], $cause, $details]);
+            $repairId = (int) $pdo->lastInsertId();
+            recordVehicleRepairEvent($pdo, $repairId, (int) $actor['id'], 'dilaporkan', "Penyebab: $cause");
+            $pdo->commit();
+        } catch (Throwable $error) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $error;
+        }
+        respond(['message' => 'Kerusakan dicatat. Kendaraan dikunci sampai pemeriksaan Admin selesai.', 'repairs' => vehicleRepairRows($pdo)], 201);
+    }
+
+    $repairId = in_array($root, ['admin', 'petugas'], true) && $second === 'perbaikan'
+        ? intSegment($third) : null;
+    $repairAction = $parts[3] ?? '';
+    if ($repairId !== null && $root === 'petugas' && $method === 'PATCH'
+        && in_array($repairAction, ['mulai', 'progres', 'pemeriksaan'], true)) {
+        $actor = requireUser($pdo, 'petugas');
+        $note = trim((string) ($payload['note'] ?? $payload['catatan'] ?? ''));
+        if (mb_strlen($note) < 5 || mb_strlen($note) > 800) {
+            fail('Catatan proses wajib diisi (5–800 karakter).', 422);
+        }
+        $pdo->beginTransaction();
+        try {
+            $stmt = $pdo->prepare('SELECT * FROM kendaraan_perbaikan WHERE id = ? FOR UPDATE');
+            $stmt->execute([$repairId]);
+            $repair = $stmt->fetch();
+            if (!$repair) {
+                $pdo->rollBack();
+                fail('Laporan kerusakan tidak ditemukan.', 404);
+            }
+            if ((int) $repair['petugas_user_id'] !== (int) $actor['id']) {
+                $pdo->rollBack();
+                fail('Hanya Petugas pelapor yang dapat memperbarui proses ini.', 403);
+            }
+            $currentStatus = (string) $repair['status'];
+            if ($repairAction === 'mulai') {
+                if (!in_array($currentStatus, ['disetujui', 'perlu_perbaikan'], true)) {
+                    $pdo->rollBack();
+                    fail('Perbaikan hanya dapat dimulai setelah disetujui Admin.', 409);
+                }
+                $nextStatus = 'dalam_perbaikan';
+                $event = 'perbaikan_dimulai';
+                $pdo->prepare("UPDATE kendaraan SET kondisi = 'Dalam Perbaikan' WHERE id = ?")
+                    ->execute([$repair['kendaraan_id']]);
+            } elseif ($repairAction === 'progres') {
+                if ($currentStatus !== 'dalam_perbaikan') {
+                    $pdo->rollBack();
+                    fail('Catatan progres hanya dapat ditambahkan saat perbaikan berlangsung.', 409);
+                }
+                $nextStatus = $currentStatus;
+                $event = 'progres_diperbarui';
+            } else {
+                if ($currentStatus !== 'dalam_perbaikan') {
+                    $pdo->rollBack();
+                    fail('Pemeriksaan dapat diminta setelah proses perbaikan dimulai.', 409);
+                }
+                $nextStatus = 'menunggu_pemeriksaan';
+                $event = 'diajukan_untuk_pemeriksaan';
+            }
+            $pdo->prepare(
+                'UPDATE kendaraan_perbaikan SET status = ?, progres_terakhir = ? WHERE id = ?'
+            )->execute([$nextStatus, $note, $repairId]);
+            recordVehicleRepairEvent($pdo, $repairId, (int) $actor['id'], $event, $note);
+            $pdo->commit();
+        } catch (Throwable $error) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $error;
+        }
+        respond(['message' => 'Proses perbaikan diperbarui.', 'repairs' => vehicleRepairRows($pdo)]);
+    }
+
+    if ($repairId !== null && $root === 'admin' && $method === 'PATCH'
+        && in_array($repairAction, ['setujui', 'tolak', 'kembalikan', 'selesai'], true)) {
+        $actor = requireUser($pdo, 'admin');
+        $note = trim((string) ($payload['note'] ?? $payload['catatan'] ?? ''));
+        if (in_array($repairAction, ['tolak', 'kembalikan'], true)
+            && (mb_strlen($note) < 5 || mb_strlen($note) > 800)) {
+            fail('Catatan Admin wajib diisi (5–800 karakter).', 422);
+        }
+        if (mb_strlen($note) > 800) {
+            fail('Catatan Admin maksimal 800 karakter.', 422);
+        }
+        $pdo->beginTransaction();
+        try {
+            $stmt = $pdo->prepare('SELECT * FROM kendaraan_perbaikan WHERE id = ? FOR UPDATE');
+            $stmt->execute([$repairId]);
+            $repair = $stmt->fetch();
+            if (!$repair) {
+                $pdo->rollBack();
+                fail('Laporan kerusakan tidak ditemukan.', 404);
+            }
+            $currentStatus = (string) $repair['status'];
+            if ($repairAction === 'setujui') {
+                if ($currentStatus !== 'menunggu_persetujuan') {
+                    $pdo->rollBack();
+                    fail('Laporan ini sudah tidak menunggu persetujuan.', 409);
+                }
+                $nextStatus = 'disetujui';
+                $event = 'disetujui_admin';
+                $pdo->prepare("UPDATE kendaraan SET kondisi = 'Dalam Perbaikan' WHERE id = ?")
+                    ->execute([$repair['kendaraan_id']]);
+            } elseif ($repairAction === 'tolak') {
+                if ($currentStatus !== 'menunggu_persetujuan') {
+                    $pdo->rollBack();
+                    fail('Hanya laporan baru yang dapat ditolak.', 409);
+                }
+                $nextStatus = 'ditolak';
+                $event = 'ditolak_admin';
+                // Tetap Rusak sampai ada laporan baru yang disetujui dan lolos pemeriksaan.
+                $pdo->prepare("UPDATE kendaraan SET kondisi = 'Rusak' WHERE id = ?")
+                    ->execute([$repair['kendaraan_id']]);
+            } elseif ($repairAction === 'kembalikan') {
+                if ($currentStatus !== 'menunggu_pemeriksaan') {
+                    $pdo->rollBack();
+                    fail('Hanya hasil perbaikan yang diajukan untuk diperiksa yang dapat dikembalikan.', 409);
+                }
+                $nextStatus = 'perlu_perbaikan';
+                $event = 'perlu_perbaikan';
+                $pdo->prepare("UPDATE kendaraan SET kondisi = 'Dalam Perbaikan' WHERE id = ?")
+                    ->execute([$repair['kendaraan_id']]);
+            } else {
+                if ($currentStatus !== 'menunggu_pemeriksaan') {
+                    $pdo->rollBack();
+                    fail('Admin hanya dapat mengaktifkan kembali kendaraan setelah memeriksa hasil perbaikan.', 409);
+                }
+                $nextStatus = 'selesai';
+                $event = 'perbaikan_disahkan';
+                $pdo->prepare("UPDATE kendaraan SET kondisi = 'Baik' WHERE id = ?")
+                    ->execute([$repair['kendaraan_id']]);
+            }
+            $pdo->prepare(
+                'UPDATE kendaraan_perbaikan SET status = ?, catatan_admin = ?, disetujui_oleh = ? WHERE id = ?'
+            )->execute([$nextStatus, $note, $actor['id'], $repairId]);
+            recordVehicleRepairEvent($pdo, $repairId, (int) $actor['id'], $event, $note);
+            $pdo->commit();
+        } catch (Throwable $error) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $error;
+        }
+        respond(['message' => 'Keputusan Admin tersimpan.', 'repairs' => vehicleRepairRows($pdo)]);
+    }
+
     if (in_array($root, ['admin', 'petugas'], true) && $second === 'kendaraan' && $third === '' && $method === 'GET') {
         requireUser($pdo, 'petugas');
         $vehicles = adminVehicleRows($pdo);
@@ -1253,10 +1524,9 @@ try {
             fail('Nomor kendaraan dan kapasitas di atas 0 kg wajib diisi.', 422);
         }
         try {
-            $condition = trim((string) ($payload['kondisi'] ?? $payload['condition'] ?? 'Baik'));
             $route = trim((string) ($payload['rute'] ?? $payload['route'] ?? ''));
-            $pdo->prepare('INSERT INTO kendaraan (plat_nomor, kapasitas_kg, kondisi, rute) VALUES (?, ?, ?, ?)')
-                ->execute([$plate, $capacity, $condition, $route]);
+            $pdo->prepare("INSERT INTO kendaraan (plat_nomor, kapasitas_kg, kondisi, rute) VALUES (?, ?, 'Baik', ?)")
+                ->execute([$plate, $capacity, $route]);
         } catch (PDOException $error) {
             if ((string) $error->getCode() === '23000') {
                 fail('Nomor kendaraan sudah terdaftar.', 409);
@@ -1286,24 +1556,15 @@ try {
                 $pdo->rollBack();
                 fail('Plat wajib diisi dan kapasitas harus cukup untuk muatan serta penugasan aktif.', 422);
             }
-            $condition = trim((string) ($payload['kondisi'] ?? $payload['condition'] ?? 'Baik'));
             $route = trim((string) ($payload['rute'] ?? $payload['route'] ?? ''));
-            if (strtolower($condition) !== 'baik') {
-                $activeTasks = $pdo->prepare('SELECT COUNT(*) FROM sampah WHERE kendaraan_id = ? AND status IN ("ditugaskan", "diangkut")');
-                $activeTasks->execute([$vehicleId]);
-                if ((int) $activeTasks->fetchColumn() > 0 || (float) $vehicle['muatan_kg'] > 0) {
-                    $pdo->rollBack();
-                    fail('Kendaraan yang bermuatan atau memiliki penugasan aktif tidak dapat ditandai servis.', 409);
-                }
-            }
             $duplicate = $pdo->prepare('SELECT id FROM kendaraan WHERE plat_nomor = ? AND id <> ? LIMIT 1');
             $duplicate->execute([$plate, $vehicleId]);
             if ($duplicate->fetch()) {
                 $pdo->rollBack();
                 fail('Nomor kendaraan sudah terdaftar.', 409);
             }
-            $pdo->prepare('UPDATE kendaraan SET plat_nomor = ?, kapasitas_kg = ?, kondisi = ?, rute = ? WHERE id = ?')
-                ->execute([$plate, $capacity, $condition, $route, $vehicleId]);
+            $pdo->prepare('UPDATE kendaraan SET plat_nomor = ?, kapasitas_kg = ?, rute = ? WHERE id = ?')
+                ->execute([$plate, $capacity, $route, $vehicleId]);
             $pdo->commit();
         } catch (PDOException $error) {
             if ($pdo->inTransaction()) {
