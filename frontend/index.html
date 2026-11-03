@@ -90,12 +90,12 @@
             >
           </label>
           <p id="login-message" class="form-message" role="alert"></p>
+          <button id="retry-session" class="text-button session-retry" type="button" hidden>
+            Coba sambungkan kembali
+          </button>
           <button class="primary-button full" type="submit">
             <span>Masuk ke Portal Warga</span><b>→</b>
           </button>
-          <p class="demo-hint">
-            Demo user: <strong>user</strong> / <strong>12345</strong>
-          </p>
         </form>
 
         <form id="register-form" class="auth-form" hidden>
@@ -133,7 +133,8 @@
                 id="register-password"
                 type="password"
                 autocomplete="new-password"
-                placeholder="Minimal 5 karakter"
+                minlength="8"
+                placeholder="Minimal 8 karakter"
                 required
               /><button
                 class="password-toggle"
@@ -179,7 +180,9 @@
           </button>
         </nav>
         <div class="topbar-actions">
-          <span class="live-pill"><i></i> Sinkron aktif</span>
+          <span id="connection-status" class="live-pill" data-state="checking">
+            <i></i><span id="connection-label">Menghubungkan</span>
+          </span>
           <button id="user-menu" class="user-chip" type="button">
             <span id="user-initial">U</span
             ><span id="user-short-name">User</span><b>⌄</b>
@@ -202,6 +205,10 @@
           ☰
         </button>
       </header>
+      <div id="connection-warning" class="connection-warning" role="status" hidden>
+        <span id="connection-warning-copy"></span>
+        <button id="retry-data" type="button">Coba lagi</button>
+      </div>
 
       <main class="page-wrap">
         <section id="page-dashboard" class="page is-active">
@@ -453,7 +460,13 @@
                   data-filter="selesai"
                   type="button"
                 >
-                  Selesai
+                  Selesai</button
+                ><button
+                  class="filter-button"
+                  data-filter="ditolak"
+                  type="button"
+                >
+                  Ditolak
                 </button>
               </div>
               <div id="reports-list" class="report-list"></div>
@@ -512,7 +525,8 @@
                   >Password baru<input
                     id="new-password"
                     type="password"
-                    minlength="5"
+                    minlength="8"
+                    placeholder="Minimal 8 karakter"
                     required
                 /></label>
                 <p id="password-message" class="form-message" role="alert"></p>
@@ -521,7 +535,7 @@
                 </button>
               </form>
               <div class="security-note">
-                Password baru minimal 5 karakter. Setelah diganti, kamu perlu
+                Password baru minimal 8 karakter. Setelah diganti, kamu perlu
                 login kembali.
               </div>
             </article>

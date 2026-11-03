@@ -1,15 +1,43 @@
 /* Smart Waste — Portal Warga (Website / User) */
 const API =
   window.SMART_WASTE_API ||
-  "http://localhost:8080/Waste2/backend-php/index.php";
+  new URL("../backend-php/index.php", document.baseURI).toString();
 const TOKEN_KEY = "smartwaste_user_token";
-const state = { user: null, reports: [], filter: "all", poll: null };
+const state = {
+  user: null,
+  reports: [],
+  filter: "all",
+  poll: null,
+  loadError: "",
+  hasLoadedData: false,
+};
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 
 function token() {
   return localStorage.getItem(TOKEN_KEY) || "";
+}
+
+function setConnectionStatus(status) {
+  const pill = $("#connection-status");
+  if (!pill) return;
+  pill.dataset.state = status;
+  $("#connection-label").textContent = {
+    checking: "Menghubungkan",
+    connected: "Terhubung",
+    offline: "Belum terhubung",
+  }[status] || "Terhubung";
+}
+
+function updateConnectionWarning() {
+  const warning = $("#connection-warning");
+  if (!warning) return;
+  warning.hidden = !state.loadError;
+  if (!state.loadError) return;
+  $("#connection-warning-copy").textContent = state.hasLoadedData
+    ? "Data terakhir masih ditampilkan, tetapi belum berhasil diperbarui."
+    : "Data belum berhasil dimuat. Periksa koneksi server lalu coba lagi.";
 }
 
 async function api(method, path, payload = null, isForm = false) {
@@ -28,18 +56,23 @@ async function api(method, path, payload = null, isForm = false) {
   try {
     response = await fetch(`${API}${path}`, options);
   } catch (error) {
+    setConnectionStatus("offline");
     throw new Error(
       "API belum bisa dihubungi. Pastikan Apache dan MySQL XAMPP aktif.",
     );
   }
+  setConnectionStatus("connected");
   let result = {};
   try {
     result = await response.json();
   } catch (_) {
     result = {};
   }
-  if (!response.ok)
-    throw new Error(result.message || "Permintaan tidak dapat diproses.");
+  if (!response.ok) {
+    const error = new Error(result.message || "Permintaan tidak dapat diproses.");
+    error.status = response.status;
+    throw error;
+  }
   return result;
 }
 
@@ -86,6 +119,7 @@ function showAuth(view = "login", message = "", type = "error") {
   $("#register-form").hidden = view !== "register";
   $("#show-login").classList.toggle("is-active", view === "login");
   $("#show-register").classList.toggle("is-active", view === "register");
+  $("#retry-session").hidden = true;
   $("#auth-title").textContent =
     view === "login" ? "Masuk ke Portal Warga" : "Daftar akun warga";
   $("#auth-subtitle").textContent =
@@ -184,6 +218,11 @@ function formatDate(value, withTime = false) {
   ).format(date);
 }
 
+function localDateInputValue(date = new Date()) {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 10);
+}
+
 function statusBadge(report) {
   const status = escapeHtml(report.status || "menunggu_verifikasi");
   return `<span class="status-badge status-${status}"><i></i>${escapeHtml(report.status_label || statusLabel(report.status))}</span>`;
@@ -253,16 +292,47 @@ async function refreshData(silent = false) {
     ]);
     state.user = me.user;
     state.reports = result.reports || result.data || [];
+    state.loadError = "";
+    state.hasLoadedData = true;
     renderUser();
     renderAll();
+    updateConnectionWarning();
+    return true;
   } catch (error) {
-    if (!silent) toast(error.message, "error");
-    if (/sesi|login|token/i.test(error.message)) {
+    state.loadError = error.message;
+    setConnectionStatus(error.status ? "connected" : "offline");
+    updateConnectionWarning();
+    if (error.status === 401 || error.status === 403) {
       localStorage.removeItem(TOKEN_KEY);
       stopPolling();
-      showAuth("login", "Sesi kamu sudah berakhir. Silakan login lagi.");
+      state.user = null;
+      showAuth(
+        "login",
+        error.status === 401
+          ? "Sesi kamu sudah berakhir. Silakan login lagi."
+          : "Akun ini tidak memiliki akses ke Portal Warga. Masuk dengan akun warga."
+      );
+      return false;
     }
+    renderAll();
+    if (!silent) toast(error.message, "error");
+    return false;
   }
+}
+
+async function retrySessionRestore() {
+  const button = $("#retry-session");
+  button.disabled = true;
+  setConnectionStatus("checking");
+  const restored = await refreshData(true);
+  if (restored) {
+    showApp();
+    startPolling();
+  } else if (token()) {
+    showAuth("login", "Server belum dapat dihubungi. Sesi tetap tersimpan; coba lagi.");
+    button.hidden = false;
+  }
+  button.disabled = false;
 }
 
 function startPolling() {
@@ -318,6 +388,7 @@ async function handleLogin(event) {
     });
     localStorage.setItem(TOKEN_KEY, result.token);
     state.user = result.user;
+    $("#login-password").value = "";
     showApp();
     await refreshData();
     startPolling();
@@ -369,7 +440,7 @@ async function handleReport(event) {
   try {
     await api("POST", "/laporan", form, true);
     $("#report-form").reset();
-    $("#report-date").value = new Date().toISOString().slice(0, 10);
+    $("#report-date").value = localDateInputValue();
     $("#photo-preview").hidden = true;
     $("#photo-preview").innerHTML = "";
     $("#photo-name").textContent = "Belum ada foto dipilih";
@@ -410,6 +481,7 @@ async function handlePassword(event) {
     localStorage.removeItem(TOKEN_KEY);
     stopPolling();
     $("#password-form").reset();
+    $("#login-password").value = "";
     showAuth(
       "login",
       "Password berhasil diganti. Silakan login kembali.",
@@ -430,6 +502,9 @@ async function logout() {
   stopPolling();
   state.user = null;
   state.reports = [];
+  state.loadError = "";
+  state.hasLoadedData = false;
+  $("#login-password").value = "";
   showAuth("login", "Kamu sudah keluar dari akun.", "success");
 }
 
@@ -437,12 +512,14 @@ function bindEvents() {
   $("#show-login").addEventListener("click", () => showAuth("login"));
   $("#show-register").addEventListener("click", () => showAuth("register"));
   $("#login-form").addEventListener("submit", handleLogin);
+  $("#retry-session").addEventListener("click", retrySessionRestore);
   $("#register-form").addEventListener("submit", handleRegister);
   $("#report-form").addEventListener("submit", handleReport);
   $("#profile-form").addEventListener("submit", handleProfile);
   $("#password-form").addEventListener("submit", handlePassword);
   $("#logout-button").addEventListener("click", logout);
   $("#refresh-reports").addEventListener("click", () => refreshData());
+  $("#retry-data").addEventListener("click", () => refreshData());
   $("#mobile-menu").addEventListener("click", () =>
     document.body.classList.toggle("mobile-nav-open"),
   );
@@ -533,21 +610,18 @@ function bindEvents() {
 
 async function boot() {
   $("#footer-year").textContent = `© ${new Date().getFullYear()}`;
-  $("#report-date").value = new Date().toISOString().slice(0, 10);
+  $("#report-date").value = localDateInputValue();
   bindEvents();
   if (!token()) {
     showAuth("login");
     return;
   }
-  try {
-    const me = await api("GET", "/me");
-    state.user = me.user;
+  if (await refreshData(true)) {
     showApp();
-    await refreshData();
     startPolling();
-  } catch (error) {
-    localStorage.removeItem(TOKEN_KEY);
-    showAuth("login", error.message || "Silakan login kembali.");
+  } else if (token()) {
+    showAuth("login", "Server belum dapat dihubungi. Sesi tetap tersimpan; coba lagi.");
+    $("#retry-session").hidden = false;
   }
 }
 

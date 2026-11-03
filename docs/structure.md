@@ -14,7 +14,6 @@ Waste 2/
 │   ├── config/
 │   │   ├── database.php        # PDO, schema bootstrap, migrasi, seed demo
 │   │   └── environment.php     # Memuat variabel dari .env lokal
-│   ├── auth/google_id_token.php# Verifikasi Google ID token
 │   ├── database/schema.sql     # Referensi skema untuk inspeksi/import manual
 │   └── uploads/                # Foto laporan; isi nyata tidak masuk Git
 ├── docs/                       # Arsitektur, API, dan panduan developer

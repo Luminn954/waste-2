@@ -31,25 +31,21 @@ Endpoint pemeriksaan:
 
 API entry point sengaja tetap di `backend-php/index.php` supaya website dan Android tidak kehilangan alamat server saat file internal dirapikan. Schema untuk inspeksi/import manual berada di `backend-php/database/schema.sql`; runtime memakai migrasi idempoten di `backend-php/config/database.php` agar data lama tetap dipertahankan.
 
-## Akun dan login staf Google
+## Akun dan login
 
-- Website user: `user` / `12345`
-- Admin bootstrap demo lokal: `admin` / `12345`, email dummy `admin@smartwaste.local` (hanya sebelum Google OAuth diwajibkan; email ini bukan akun Google).
+Semua akun masuk memakai username dan kata sandi. Google OAuth tidak digunakan.
 
-Website hanya menerima role `user`. Android menerima role `admin` dan `petugas`; login silang ditolak. Setelah Google OAuth dikonfigurasi, Android hanya menerima token Google dengan email terverifikasi yang sudah terdaftar di tabel `users`. Login tidak membuat akun otomatis. Admin pertama dapat mendaftarkan email Admin/Petugas lewat menu Operasional; akun staf biasa tidak dapat mengubah email izinnya sendiri.
+- Website menerima role `user` untuk registrasi dan laporan warga.
+- Android menerima role `admin` dan `petugas`; login silang ditolak.
+- Admin membuat akun Petugas melalui menu Operasional. Pendaftaran publik hanya membuat akun warga.
+- Pendaftaran akun baru dan penggantian kata sandi memerlukan minimal 8 karakter. Kata sandi akun lama tidak berubah.
+- Login dibatasi setelah 5 kata sandi salah untuk pasangan identitas akun dan alamat IP yang sama; percobaan baru dapat dilakukan kembali setelah 15 menit.
+- Untuk database baru, isi `SMARTWASTE_BOOTSTRAP_ADMIN_PASSWORD` di `backend-php/.env` sebelum API pertama kali dijalankan. Seeder membuat akun `admin` hanya jika kata sandi minimal 8 karakter tersedia; akun yang sudah ada tidak diubah.
+- Username `admin` dicadangkan dan tidak dapat dipakai saat pendaftaran warga.
+- Akun demo warga `user` / `12345` dan laporan contoh hanya dibuat jika `SMARTWASTE_SEED_DEMO_USER=1` disetel untuk demo lokal. Biarkan `0` untuk penggunaan biasa; jangan memakai kredensial demo pada deployment.
+- Migrasi tidak mereset kata sandi database lama. Jika Admin lama masih memakai kata sandi demo, ganti lewat aplikasi sebelum membuka server ke jaringan.
 
-### Menyiapkan Google OAuth
-
-Flow ini menggunakan Google ID token, bukan service-account private key atau client secret. Yang dibutuhkan adalah **OAuth Web Client ID** yang sama untuk aplikasi Android dan verifikasi PHP.
-
-1. Di Google Auth Platform, daftarkan aplikasi untuk demo dan gunakan audience **External / Testing**. Tambahkan Gmail admin pertama sebagai test user.
-2. Buat OAuth client tipe **Web application**. Catat **Client ID**-nya; untuk alur ID token ini tidak perlu memasukkan Client Secret ke aplikasi.
-3. Buat OAuth client tipe **Android** dengan package `com.uoi.pratikumwithbunafla` dan SHA-1 debug certificate Android Studio: `38:8D:98:93:6C:92:D1:6A:46:32:F7:A0:5C:6C:6B:8B:3E:C6:5E:94`.
-4. Atur `SMARTWASTE_GOOGLE_CLIENT_ID` ke Web Client ID dan `SMARTWASTE_FIRST_ADMIN_EMAIL` ke Gmail admin pertama yang sungguhan di `backend-php/.env` atau environment Windows. Jika memakai environment Windows, restart XAMPP Control Panel lalu Apache. Untuk database non-default, konfigurasi juga bisa diatur lewat `SMARTWASTE_DB_HOST`, `SMARTWASTE_DB_PORT`, `SMARTWASTE_DB_NAME`, `SMARTWASTE_DB_USER`, dan `SMARTWASTE_DB_PASSWORD`.
-5. Tutup Android Studio, buka ulang melalui `OPEN-AndroidStudio-SmartWaste.bat`, lalu build ulang agar Gradle memasukkan Web Client ID ke APK.
-6. Buka aplikasi, login sebagai admin pertama melalui Google, lalu daftarkan email akun Admin/Petugas. Hanya email yang sudah didaftarkan admin yang bisa masuk melalui Google.
-
-Sebelum Client ID server dipasang, login password lama tetap tersedia agar admin awal tidak terkunci. Setelah Client ID dipasang, endpoint PHP menolak login password Android dan UI perlu dibuild ulang dengan Client ID yang sama. Client ID bukan rahasia; jangan menaruh private key/service-account key di aplikasi Android.
+Pengaturan koneksi database XAMPP dapat memakai `SMARTWASTE_DB_HOST`, `SMARTWASTE_DB_PORT`, `SMARTWASTE_DB_NAME`, `SMARTWASTE_DB_USER`, dan `SMARTWASTE_DB_PASSWORD` melalui konfigurasi environment lokal. Jangan commit file `.env` atau kredensial.
 
 ## Fitur inti
 
@@ -67,16 +63,18 @@ Sebelum Client ID server dipasang, login password lama tetap tersedia agar admin
 - Login admin.
 - Dashboard total user, laporan, menunggu, diproses, selesai, dan ditolak.
 - Lihat detail laporan, lokasi, deskripsi, dan buka foto.
-- Tolak laporan atau tetapkan petugas, kendaraan, dan TPA pada laporan yang lolos verifikasi.
-- Lihat dan nonaktifkan akun user bermasalah.
+- Pantau laporan warga, tinjau bukti penyelesaian, dan setujui/tolak proses perbaikan armada.
+- Kelola akun Petugas, catatan Admin, statistik, dan kinerja operasional.
 - Statistik per bulan, jenis sampah, berat, dan laporan selesai.
 - Refresh otomatis setiap 15 detik.
 
 ### Android — Petugas
 
 - Login dengan akun petugas yang dibuat Admin.
-- Melihat penugasan milik akun sendiri beserta lokasi, kendaraan, TPA, dan foto laporan.
-- Memperbarui alur `Ditugaskan → Diangkut → Selesai`; status dan kapasitas disimpan ke database bersama.
+- Menangani antrean laporan: pilih kendaraan dan TPA, atau tolak dengan alasan.
+- Memperbarui alur `Ditugaskan → Diangkut → Selesai` dengan bukti foto untuk konfirmasi penyelesaian.
+- Mengelola armada/TPA operasional dan melaporkan kerusakan kendaraan untuk persetujuan Admin.
+- Melihat kinerja serta mengarsipkan dan memulihkan tugas.
 - Tidak dapat membuka menu administrasi atau mengubah penugasan petugas lain.
 
 ## Struktur database utama

@@ -27,6 +27,16 @@ function fail(string $message, int $status = 400, array $extra = []): never
     respond(array_merge(['message' => $message], $extra), $status);
 }
 
+function respondServerError(string $message, Throwable $error): never
+{
+    error_log('[Smart Waste API] ' . $error::class . ': ' . $error->getMessage());
+    $response = ['message' => $message];
+    if (getenv('SMARTWASTE_DEBUG') === '1') {
+        $response['detail'] = $error->getMessage();
+    }
+    respond($response, 500);
+}
+
 function body(): array
 {
     if (!empty($_POST)) {
@@ -105,6 +115,15 @@ function requireUser(PDO $pdo, ?string $role = null): array
             default => 'user',
         };
         fail('Akses khusus ' . $label . '.', 403);
+    }
+    return $user;
+}
+
+function requireUserInRoles(PDO $pdo, array $roles): array
+{
+    $user = requireUser($pdo);
+    if (!in_array($user['role'], $roles, true)) {
+        fail('Akses tidak diizinkan untuk role ini.', 403);
     }
     return $user;
 }
@@ -793,6 +812,31 @@ try {
         if ($identity === '' || $password === '') {
             fail('Username/email dan password wajib diisi.', 422);
         }
+        $remoteAddress = (string) ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+        $identityHash = hash('sha256', strtolower($identity) . "\0" . $remoteAddress);
+        $pdo->prepare('DELETE FROM auth_login_attempts WHERE attempted_at < DATE_SUB(NOW(), INTERVAL 1 DAY)')
+            ->execute();
+        $loginLockName = 'smartwaste-login:' . substr($identityHash, 0, 48);
+        $lock = $pdo->prepare('SELECT GET_LOCK(?, 5)');
+        $lock->execute([$loginLockName]);
+        if ((int) $lock->fetchColumn() !== 1) {
+            header('Retry-After: 2');
+            fail('Login lain sedang diproses untuk akun ini. Coba lagi sebentar.', 503);
+        }
+        $releaseLoginLock = static function () use ($pdo, $loginLockName): void {
+            $release = $pdo->prepare('SELECT RELEASE_LOCK(?)');
+            $release->execute([$loginLockName]);
+        };
+        $attempts = $pdo->prepare(
+            'SELECT COUNT(*) FROM auth_login_attempts
+             WHERE identity_hash = ? AND attempted_at >= DATE_SUB(NOW(), INTERVAL 15 MINUTE)'
+        );
+        $attempts->execute([$identityHash]);
+        if ((int) $attempts->fetchColumn() >= 5) {
+            $releaseLoginLock();
+            header('Retry-After: 900');
+            fail('Terlalu banyak percobaan masuk. Coba lagi dalam 15 menit.', 429);
+        }
         $stmt = $pdo->prepare(
             'SELECT id, username, email, password_hash, nama, role, aktif, is_super_admin FROM users
              WHERE (username = ? OR email = ?) LIMIT 1'
@@ -800,8 +844,12 @@ try {
         $stmt->execute([$identity, $identity]);
         $user = $stmt->fetch();
         if (!$user || !password_verify($password, (string) $user['password_hash'])) {
+            $pdo->prepare('INSERT INTO auth_login_attempts (identity_hash) VALUES (?)')->execute([$identityHash]);
+            $releaseLoginLock();
             fail('Username atau password salah.', 401);
         }
+        $pdo->prepare('DELETE FROM auth_login_attempts WHERE identity_hash = ?')->execute([$identityHash]);
+        $releaseLoginLock();
         if (!(int) $user['aktif']) {
             fail('Akun ini sedang dinonaktifkan oleh admin.', 403);
         }
@@ -831,8 +879,11 @@ try {
         if ($name === '' || $username === '' || $password === '') {
             fail('Nama, username, dan password wajib diisi.', 422);
         }
-        if (strlen($username) < 3 || strlen($password) < 5) {
-            fail('Username minimal 3 karakter dan password minimal 5 karakter.', 422);
+        if (strlen($username) < 3 || strlen($password) < 8) {
+            fail('Username minimal 3 karakter dan password minimal 8 karakter.', 422);
+        }
+        if (strtolower($username) === 'admin') {
+            fail('Username admin disediakan untuk akun pengelola sistem.', 409);
         }
         if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             fail('Format email tidak valid.', 422);
@@ -894,8 +945,8 @@ try {
         $user = requireUser($pdo);
         $old = (string) ($payload['old_password'] ?? $payload['current_password'] ?? '');
         $new = (string) ($payload['new_password'] ?? $payload['password'] ?? '');
-        if ($old === '' || $new === '' || strlen($new) < 5) {
-            fail('Password lama dan password baru minimal 5 karakter wajib diisi.', 422);
+        if ($old === '' || strlen($new) < 8) {
+            fail('Password lama wajib diisi dan password baru minimal 8 karakter.', 422);
         }
         $hash = $pdo->prepare('SELECT password_hash FROM users WHERE id = ?');
         $hash->execute([$user['id']]);
@@ -909,7 +960,7 @@ try {
 
     // Endpoint laporan user. Jika dipanggil admin, GET menampilkan semua laporan.
     if (($root === 'sampah' || $root === 'laporan') && $second === '' && $method === 'GET') {
-        $user = requireUser($pdo);
+        $user = requireUserInRoles($pdo, ['user', 'admin']);
         $status = normalizeStatus((string) ($_GET['status'] ?? ''));
         $search = isset($_GET['q']) ? (string) $_GET['q'] : null;
         $rows = reportQuery(
@@ -972,7 +1023,7 @@ try {
 
     $reportId = intSegment($second);
     if (($root === 'sampah' || $root === 'laporan') && $reportId !== null && $third === '' && $method === 'GET') {
-        $user = requireUser($pdo);
+        $user = requireUserInRoles($pdo, ['user', 'admin']);
         $report = findReport($pdo, $reportId);
         if (!$report) {
             fail('Laporan tidak ditemukan.', 404);
@@ -984,7 +1035,7 @@ try {
     }
 
     if (($root === 'sampah' || $root === 'laporan') && $reportId !== null && $third === 'riwayat' && $method === 'GET') {
-        $user = requireUser($pdo);
+        $user = requireUserInRoles($pdo, ['user', 'admin']);
         $report = findReport($pdo, $reportId);
         if (!$report) {
             fail('Laporan tidak ditemukan.', 404);
@@ -1170,24 +1221,14 @@ try {
     }
 
     if ($root === 'admin' && in_array($second, ['petugas', 'akun'], true) && $third === '' && $method === 'POST') {
-        $creator = requireUser($pdo, 'admin');
+        requireUser($pdo, 'admin');
         $name = trim((string) ($payload['nama'] ?? $payload['name'] ?? ''));
         $username = trim((string) ($payload['username'] ?? ''));
         $email = strtolower(trim((string) ($payload['email'] ?? '')));
         $password = (string) ($payload['password'] ?? '');
         $zone = trim((string) ($payload['zona_tugas'] ?? $payload['zone'] ?? ''));
-        $role = $second === 'petugas' ? 'petugas' : strtolower(trim((string) ($payload['role'] ?? '')));
-        if (!in_array($role, ['admin', 'petugas'], true)) {
-            fail('Role akun harus Admin atau Petugas.', 422);
-        }
-        if ($role !== 'petugas') {
-            fail('Admin hanya dapat menambahkan akun Petugas.', 403);
-        }
-        if ($role === 'admin' && !(bool) ($creator['is_super_admin'] ?? false)) {
-            fail('Hanya admin pertama yang dapat menambahkan akun Admin.', 403);
-        }
-        if ($name === '' || strlen($username) < 3 || strlen($password) < 5 || $email === '') {
-            fail('Nama, username minimal 3 karakter, email, dan password awal minimal 5 karakter wajib diisi.', 422);
+        if ($name === '' || strlen($username) < 3 || strlen($password) < 8 || $email === '') {
+            fail('Nama, username minimal 3 karakter, email, dan password awal minimal 8 karakter wajib diisi.', 422);
         }
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
             fail('Format email tidak valid.', 422);
@@ -1201,21 +1242,18 @@ try {
         try {
             $passwordHash = password_hash($password, PASSWORD_DEFAULT);
             $pdo->prepare('INSERT INTO users (username, email, password_hash, nama, role, aktif, is_super_admin) VALUES (?, ?, ?, ?, ?, 1, 0)')
-                ->execute([$username, $email, $passwordHash, $name, $role]);
+                ->execute([$username, $email, $passwordHash, $name, 'petugas']);
             $userId = (int) $pdo->lastInsertId();
-            if ($role === 'petugas') {
-                $pdo->prepare('INSERT INTO petugas (user_id, nama, zona_tugas, status_aktif) VALUES (?, ?, ?, 1)')
-                    ->execute([$userId, $name, $zone]);
-            } else {
-                $pdo->prepare('INSERT INTO admin (user_id, nama_admin, email, password_hash, aktif) VALUES (?, ?, ?, ?, 1)')
-                    ->execute([$userId, $name, $email, $passwordHash]);
-            }
+            $pdo->prepare('INSERT INTO petugas (user_id, nama, zona_tugas, status_aktif) VALUES (?, ?, ?, 1)')
+                ->execute([$userId, $name, $zone]);
             $pdo->commit();
         } catch (Throwable $error) {
-            $pdo->rollBack();
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
             throw $error;
         }
-        respond(['message' => 'Akun ' . ucfirst($role) . ' berhasil dibuat. Login memakai username dan kata sandi.'], 201);
+        respond(['message' => 'Akun Petugas berhasil dibuat. Login memakai username dan kata sandi.'], 201);
     }
 
     $staffId = $root === 'admin' && $second === 'petugas' ? intSegment($third) : null;
@@ -2273,8 +2311,7 @@ try {
         ]);
     }
 
-    if ((($root === 'petugas' && $second === 'laporan')
-            || ($root === 'admin' && in_array($second, ['laporan', 'reports'], true)))
+    if ($root === 'petugas' && $second === 'laporan'
         && $adminReportId !== null && ($parts[3] ?? '') === 'tugaskan' && $method === 'PATCH') {
         $actor = requireUser($pdo, 'petugas');
         $assignedWorker = workerProfile($pdo, (int) $actor['id']);
@@ -2386,23 +2423,29 @@ try {
         if ($nextStatus === null) {
             fail('Status laporan tidak valid.', 422);
         }
-        $report = findReport($pdo, (int) $id);
-        if (!$report) {
-            fail('Laporan tidak ditemukan.', 404);
-        }
-        if ($report['status'] !== 'menunggu_verifikasi' || $nextStatus !== 'ditolak') {
-            fail('Petugas hanya dapat menolak laporan yang masih menunggu verifikasi.', 409);
-        }
         $note = trim((string) ($payload['note'] ?? $payload['catatan'] ?? ''));
         $pdo->beginTransaction();
         try {
+            $stmt = $pdo->prepare('SELECT status FROM sampah WHERE id = ? FOR UPDATE');
+            $stmt->execute([$id]);
+            $report = $stmt->fetch();
+            if (!$report) {
+                $pdo->rollBack();
+                fail('Laporan tidak ditemukan.', 404);
+            }
+            if ($report['status'] !== 'menunggu_verifikasi' || $nextStatus !== 'ditolak') {
+                $pdo->rollBack();
+                fail('Petugas hanya dapat menolak laporan yang masih menunggu verifikasi.', 409);
+            }
             $pdo->prepare('UPDATE sampah SET status = ? WHERE id = ?')->execute([$nextStatus, $id]);
             $pdo->prepare(
                 'INSERT INTO riwayat_status (sampah_id, status, diubah_oleh, catatan) VALUES (?, ?, ?, ?)'
             )->execute([$id, $nextStatus, $actor['id'], $note]);
             $pdo->commit();
         } catch (Throwable $error) {
-            $pdo->rollBack();
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
             throw $error;
         }
         $updated = findReport($pdo, (int) $id);
@@ -2411,7 +2454,7 @@ try {
 
     if (($root === 'users' && $second === '' && $method === 'GET')
         || ($root === 'admin' && $second === 'users' && $third === '' && $method === 'GET')) {
-        requireUser($pdo, 'petugas');
+        requireUser($pdo, 'admin');
         $users = adminUserRows($pdo);
         respond(['users' => $users, 'data' => $users]);
     }
@@ -2419,7 +2462,7 @@ try {
     $userId = intSegment($third);
     if ($root === 'admin' && $second === 'users' && $userId !== null && in_array($parts[3] ?? '', ['toggle', 'status'], true)
         && in_array($method, ['PUT', 'PATCH', 'POST'], true)) {
-        requireUser($pdo, 'petugas');
+        requireUser($pdo, 'admin');
         $target = $pdo->prepare("SELECT id, role, aktif FROM users WHERE id = ? LIMIT 1");
         $target->execute([$userId]);
         $targetUser = $target->fetch();
@@ -2433,7 +2476,7 @@ try {
     }
 
     if ($root === 'admin' && $second === 'users' && $userId !== null && ($parts[3] ?? '') === '' && $method === 'DELETE') {
-        requireUser($pdo, 'petugas');
+        requireUser($pdo, 'admin');
         $target = $pdo->prepare('SELECT id, role FROM users WHERE id = ? LIMIT 1');
         $target->execute([$userId]);
         $targetUser = $target->fetch();
@@ -2464,7 +2507,7 @@ try {
 
     fail('Endpoint tidak ditemukan.', 404);
 } catch (PDOException $error) {
-    respond(['message' => 'Database error.', 'detail' => $error->getMessage()], 500);
+    respondServerError('Database error.', $error);
 } catch (Throwable $error) {
-    respond(['message' => 'Terjadi kesalahan pada server.', 'detail' => $error->getMessage()], 500);
+    respondServerError('Terjadi kesalahan pada server.', $error);
 }

@@ -105,6 +105,13 @@ function initialiseSchema(PDO $pdo): void
             INDEX idx_token_user (user_id),
             INDEX idx_token_expiry (expires_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+        "CREATE TABLE IF NOT EXISTS auth_login_attempts (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            identity_hash CHAR(64) NOT NULL,
+            attempted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_login_attempts_identity_time (identity_hash, attempted_at),
+            INDEX idx_login_attempts_expiry (attempted_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
         "CREATE TABLE IF NOT EXISTS sampah (
             id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             kode_laporan VARCHAR(60) NOT NULL UNIQUE,
@@ -271,6 +278,7 @@ function initialiseSchema(PDO $pdo): void
     // Jangan meratakan status operasional baru ke "diproses". Migrasi lama ini
     // dijalankan saat API diakses, jadi pemetaan harus tetap idempoten.
     $pdo->exec("UPDATE sampah SET status = 'menunggu_verifikasi' WHERE status = 'menunggu'");
+    $pdo->exec("UPDATE riwayat_status SET status = 'menunggu_verifikasi' WHERE status = 'menunggu'");
     $pdo->exec("UPDATE sampah SET tanggal_lapor = DATE(dibuat_pada) WHERE tanggal_lapor IS NULL");
 }
 
@@ -323,10 +331,10 @@ function seedDefaults(PDO $pdo): void
         'INSERT INTO users (username, email, password_hash, nama, role, aktif) VALUES (?, ?, ?, ?, ?, 1)'
     );
 
-    $defaults = [
-        ['admin', 'admin@smartwaste.local', 'Admin Smart Waste', 'admin'],
-        ['user', 'user@smartwaste.local', 'User Smart Waste', 'user'],
-    ];
+    $seedDemoUser = getenv('SMARTWASTE_SEED_DEMO_USER') === '1';
+    $defaults = $seedDemoUser
+        ? [['user', 'user@smartwaste.local', 'User Smart Waste', 'user']]
+        : [];
 
     foreach ($defaults as [$username, $email, $name, $role]) {
         $userStmt->execute([$username]);
@@ -336,27 +344,36 @@ function seedDefaults(PDO $pdo): void
             continue;
         }
 
+        if ((string) $existing['role'] !== $role) {
+            continue;
+        }
+
         // Akun demo tetap dapat dipakai setelah migrasi versi lama, tanpa menimpa password custom.
         if (empty($existing['email'])) {
             $pdo->prepare('UPDATE users SET email = ? WHERE id = ?')->execute([$email, $existing['id']]);
         }
-        if ((string) $existing['role'] !== $role) {
-            $pdo->prepare('UPDATE users SET role = ? WHERE id = ?')->execute([$role, $existing['id']]);
-        }
     }
 
-    // Akun demo "admin" adalah bootstrap admin pertama. Email hanya data profil;
-    // login selalu memakai username dan kata sandi.
-    $bootstrapEmail = strtolower(trim((string) getenv('SMARTWASTE_FIRST_ADMIN_EMAIL')));
-    if ($bootstrapEmail !== '' && filter_var($bootstrapEmail, FILTER_VALIDATE_EMAIL)) {
-        $pdo->prepare(
-            "UPDATE users SET email = ? WHERE username = 'admin' AND role = 'admin'
-             AND (email = '' OR email = 'admin@smartwaste.local')"
-        )->execute([$bootstrapEmail]);
+    // Buat Admin bootstrap hanya jika installer memberi kata sandi lokal yang kuat.
+    $bootstrapAdminPassword = trim((string) getenv('SMARTWASTE_BOOTSTRAP_ADMIN_PASSWORD'));
+    $userStmt->execute(['admin']);
+    $existingAdmin = $userStmt->fetch();
+    if (!$existingAdmin && strlen($bootstrapAdminPassword) >= 8) {
+        $insertUser->execute([
+            'admin',
+            'admin@smartwaste.local',
+            password_hash($bootstrapAdminPassword, PASSWORD_DEFAULT),
+            'Admin Smart Waste',
+            'admin',
+        ]);
     }
+
     $pdo->exec("UPDATE users SET is_super_admin = 1 WHERE username = 'admin' AND role = 'admin'");
 
-    $admin = $pdo->query("SELECT id, nama, email, password_hash, aktif FROM users WHERE username = 'admin' LIMIT 1")->fetch();
+    $admin = $pdo->query(
+        "SELECT id, nama, email, password_hash, aktif FROM users
+         WHERE username = 'admin' AND role = 'admin' LIMIT 1"
+    )->fetch();
     if ($admin) {
         $adminCheck = $pdo->prepare('SELECT id_admin FROM admin WHERE user_id = ? LIMIT 1');
         $adminCheck->execute([$admin['id']]);
@@ -371,15 +388,19 @@ function seedDefaults(PDO $pdo): void
         }
     }
 
-    if ((int) $pdo->query('SELECT COUNT(*) FROM sampah')->fetchColumn() === 0) {
-        $userId = (int) $pdo->query("SELECT id FROM users WHERE username = 'user' LIMIT 1")->fetchColumn();
-        $stmt = $pdo->prepare(
-            'INSERT INTO sampah (kode_laporan, jenis, berat_kg, lokasi, deskripsi, tanggal_lapor, status, id_user)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-        );
-        $stmt->execute(['SW-001', 'Plastik', 1.2, 'Jl. Melati', 'Sampah plastik di sisi jalan.', date('Y-m-d'), 'selesai', $userId]);
-        $stmt->execute(['SW-002', 'Organik', 2.5, 'Pasar Lama', 'Tumpukan sisa sayur dari pasar.', date('Y-m-d'), 'diproses', $userId]);
-        $stmt->execute(['SW-003', 'Kertas', 0.8, 'Kampus Utama', 'Kardus dan kertas bekas.', date('Y-m-d'), 'menunggu_verifikasi', $userId]);
+    if ($seedDemoUser && (int) $pdo->query('SELECT COUNT(*) FROM sampah')->fetchColumn() === 0) {
+        $userId = (int) $pdo->query(
+            "SELECT id FROM users WHERE username = 'user' AND role = 'user' LIMIT 1"
+        )->fetchColumn();
+        if ($userId > 0) {
+            $stmt = $pdo->prepare(
+                'INSERT INTO sampah (kode_laporan, jenis, berat_kg, lokasi, deskripsi, tanggal_lapor, status, id_user)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+            );
+            $stmt->execute(['SW-001', 'Plastik', 1.2, 'Jl. Melati', 'Sampah plastik di sisi jalan.', date('Y-m-d'), 'selesai', $userId]);
+            $stmt->execute(['SW-002', 'Organik', 2.5, 'Pasar Lama', 'Tumpukan sisa sayur dari pasar.', date('Y-m-d'), 'diproses', $userId]);
+            $stmt->execute(['SW-003', 'Kertas', 0.8, 'Kampus Utama', 'Kardus dan kertas bekas.', date('Y-m-d'), 'menunggu_verifikasi', $userId]);
+        }
     }
 
     // Setiap laporan selalu punya jejak status awal/terakhir.

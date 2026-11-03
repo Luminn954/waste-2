@@ -23,4 +23,4 @@
 
 7. Uji login silang role, pembuatan laporan user, verifikasi/penugasan admin, serta status petugas di emulator dan browser. Keduanya harus terlihat pada database yang sama.
 
-Untuk keamanan, jangan commit password MySQL produksi, OAuth secret, token, file `.env`, atau foto laporan warga. Google ID token diverifikasi di PHP; client ID bukan private key.
+Untuk keamanan, jangan commit password MySQL produksi, API key, token, file `.env`, atau foto laporan warga. Login memakai username dan kata sandi; server tetap menjadi sumber pemeriksaan role dan kepemilikan data. Detail error API disembunyikan secara default; `SMARTWASTE_DEBUG=1` hanya untuk debugging lokal dan harus tetap `0` di jaringan publik.

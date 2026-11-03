@@ -13,29 +13,28 @@ Semua respons error berbentuk JSON dengan `message` dan HTTP status yang sesuai.
 | Method dan path | Akses | Tujuan |
 |---|---|---|
 | `GET /health` | Publik | Cek API dan koneksi database |
-| `POST /auth/login` | Publik | Login web `user`; login admin/petugas hanya untuk demo ketika OAuth belum diwajibkan |
-| `POST /auth/register` | Publik | Registrasi akun user website (`client: web`) |
-| `GET /auth/google/challenge` | Publik | Membuat nonce login Google staf |
-| `POST /auth/google` | Publik | Login Google admin/petugas yang emailnya sudah didaftarkan admin |
+| `POST /auth/login` | Publik | Login username/kata sandi; 5 sandi salah untuk pasangan identitas dan alamat IP yang sama membatasi login selama 15 menit |
+| `POST /auth/register` | Publik | Registrasi akun warga website (`client: web`); sandi baru minimal 8 karakter |
 | `POST /auth/logout` | Login | Menghapus sesi token aktif |
 | `GET /me` | Login | Profil akun aktif |
 | `PUT /me` | Login | Memperbarui profil |
 | `PATCH /me/password` | Login | Mengganti password |
-| `GET /sampah` atau `/laporan` | Login | Daftar laporan; user dibatasi ke miliknya |
+| `GET /sampah` atau `/laporan` | Admin/User | Daftar laporan Admin; User hanya melihat laporannya sendiri. Petugas memakai endpoint antrean/tugas khusus |
 | `GET /sampah/mine` atau `/sampah/saya` | User | Riwayat laporan sendiri |
 | `POST /sampah` | User | Membuat laporan beserta foto opsional |
-| `GET /sampah/{id}` | Login | Detail laporan; user hanya boleh melihat miliknya |
-| `GET /sampah/{id}/riwayat` | Login | Riwayat status laporan |
+| `GET /sampah/{id}` | Admin/User | Detail laporan; User hanya boleh melihat miliknya |
+| `GET /sampah/{id}/riwayat` | Admin/User | Riwayat status; User hanya boleh melihat miliknya |
 | `GET /admin/dashboard` atau `/dashboard` | Admin | Ringkasan operasional |
 | `GET /admin/laporan` | Admin | Antrean dan daftar laporan; mendukung `status` dan `q` |
 | `GET /admin/laporan/{id}` | Admin | Detail laporan |
-| `PATCH /admin/laporan/{id}/status` | Admin | Mengubah status yang diizinkan |
-| `PATCH /admin/laporan/{id}/tugaskan` | Admin | Menetapkan petugas, kendaraan, dan TPA |
 | `GET /admin/petugas` | Admin | Daftar petugas |
-| `POST /admin/akun` | Admin | Menambahkan akun staf yang diizinkan login Google |
+| `POST /admin/petugas` atau `/admin/akun` | Admin | Membuat akun Petugas dengan username dan kata sandi minimal 8 karakter |
 | `PATCH /admin/petugas/{id}` | Admin | Memperbarui status/profil petugas |
-| `GET /admin/kendaraan`, `POST /admin/kendaraan`, `PATCH /admin/kendaraan/{id}` | Admin | Kelola armada |
-| `GET /admin/tpa`, `POST /admin/tpa`, `PATCH /admin/tpa/{id}` | Admin | Kelola fasilitas TPA |
+| `GET /petugas/laporan` | Petugas | Antrean laporan warga yang belum ditugaskan |
+| `PATCH /petugas/laporan/{id}/tugaskan` | Petugas | Menetapkan kendaraan dan TPA untuk laporan yang ditangani |
+| `PATCH /petugas/laporan/{id}/tolak` | Petugas | Menolak laporan yang belum ditugaskan dengan catatan |
+| `GET /petugas/kendaraan`, `POST /petugas/kendaraan`, `PATCH /petugas/kendaraan/{id}` | Petugas | Lihat dan kelola armada operasional |
+| `GET /petugas/tpa`, `POST /petugas/tpa`, `PATCH /petugas/tpa/{id}` | Petugas | Lihat dan kelola tujuan serta kapasitas TPA |
 | `GET /admin/perbaikan` | Admin | Memantau laporan kerusakan dan proses perbaikan armada |
 | `PATCH /admin/perbaikan/{id}/setujui` | Admin | Menyetujui kendaraan masuk tahap perbaikan |
 | `PATCH /admin/perbaikan/{id}/tolak` | Admin | Menolak laporan kerusakan dengan alasan; kendaraan tetap dikunci |
@@ -48,6 +47,7 @@ Semua respons error berbentuk JSON dengan `message` dan HTTP status yang sesuai.
 | `PATCH /petugas/perbaikan/{id}/pemeriksaan` | Petugas pelapor | Mengirim hasil perbaikan untuk pemeriksaan Admin |
 | `GET /admin/users` | Admin | Daftar akun user |
 | `PATCH /admin/users/{id}/toggle` | Admin | Menonaktifkan/mengaktifkan akun user |
+| `DELETE /admin/users/{id}` | Admin | Menghapus akun user; laporan historis tetap disimpan |
 | `GET /admin/laporan-harian?from=YYYY-MM-DD&to=YYYY-MM-DD` | Admin | Ringkasan laporan per hari |
 | `GET /admin/statistik` | Admin | Statistik laporan dan jenis sampah |
 | `GET /petugas/tugas` | Petugas | Tugas milik petugas yang sedang login |

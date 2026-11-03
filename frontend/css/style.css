@@ -419,14 +419,10 @@ input:disabled {
 .form-message.is-info {
   color: var(--blue);
 }
-.demo-hint,
 .auth-footnote {
   color: var(--soft);
   font-size: 11px;
   text-align: center;
-}
-.demo-hint strong {
-  color: var(--green);
 }
 .auth-footnote {
   margin-top: 25px;
@@ -537,6 +533,45 @@ input:disabled {
   background: #5eb496;
   box-shadow: 0 0 0 4px rgba(94, 180, 150, 0.13);
   animation: pulse 2s infinite;
+}
+.live-pill[data-state="offline"] i {
+  background: #cf705e;
+  box-shadow: 0 0 0 4px rgba(207, 112, 94, 0.13);
+  animation: none;
+}
+.live-pill[data-state="checking"] i {
+  background: var(--sun);
+  box-shadow: 0 0 0 4px rgba(230, 214, 173, 0.2);
+  animation: none;
+}
+.connection-warning {
+  display: flex;
+  width: min(calc(100% - 32px), 1240px);
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px auto 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  color: #73532c;
+  background: #f7eedb;
+  font-size: 12px;
+}
+.connection-warning button {
+  flex: 0 0 auto;
+  border: 0;
+  padding: 4px 6px;
+  color: var(--green-dark);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 750;
+}
+.connection-warning button:disabled {
+  opacity: 0.6;
+}
+.session-retry {
+  justify-self: start;
+  margin-top: -7px;
 }
 .user-chip {
   display: inline-flex;
