@@ -218,6 +218,22 @@ function initialiseSchema(PDO $pdo): void
             tgl_terakhir_dikosongkan VARCHAR(80) NULL,
             dibuat_pada DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+        "CREATE TABLE IF NOT EXISTS permintaan_pengosongan (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            jenis_target VARCHAR(16) NOT NULL,
+            target_id BIGINT UNSIGNED NOT NULL,
+            diminta_oleh BIGINT UNSIGNED NOT NULL,
+            alasan VARCHAR(500) NOT NULL,
+            foto_bukti VARCHAR(255) NOT NULL,
+            status VARCHAR(24) NOT NULL DEFAULT 'menunggu',
+            catatan_admin VARCHAR(500) NOT NULL DEFAULT '',
+            ditinjau_oleh BIGINT UNSIGNED NULL,
+            dibuat_pada DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            ditinjau_pada DATETIME NULL,
+            INDEX idx_emptying_target_status (jenis_target, target_id, status),
+            INDEX idx_emptying_status_date (status, dibuat_pada),
+            INDEX idx_emptying_requester_date (diminta_oleh, dibuat_pada)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
         "CREATE TABLE IF NOT EXISTS laporan_harian (
             id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             tanggal DATE NOT NULL,
