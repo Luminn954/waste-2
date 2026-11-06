@@ -239,8 +239,6 @@ function reportRow(PDO $pdo, array $row, bool $includeHistory = false): array
         'created_at' => $row['dibuat_pada'],
         'status' => $status,
         'status_label' => statusLabel($status),
-        'hazard_level' => (string) ($row['tingkat_bahaya'] ?? 'RENDAH'),
-        'tingkat_bahaya' => (string) ($row['tingkat_bahaya'] ?? 'RENDAH'),
         'user_id' => $row['id_user'] === null ? null : (int) $row['id_user'],
         'id_user' => $row['id_user'] === null ? null : (int) $row['id_user'],
         'reported_by' => (string) ($row['nama_user'] ?? 'User'),
@@ -558,11 +556,6 @@ function dashboard(PDO $pdo): array
     $tpaStats = $pdo->query(
         'SELECT COALESCE(SUM(kapasitas_ton), 0) AS capacity, COALESCE(SUM(terisi_ton), 0) AS used FROM tpa'
     )->fetch();
-    $hazardAlerts = (int) $pdo->query(
-        "SELECT COUNT(*) FROM sampah
-         WHERE UPPER(tingkat_bahaya) IN ('TINGGI', 'B3', 'BERBAHAYA', 'HIGH', 'CRITICAL')
-           AND status NOT IN ('selesai', 'ditolak')"
-    )->fetchColumn();
     $totalCapacity = (float) ($tpaStats['capacity'] ?? 0);
     $usedCapacity = (float) ($tpaStats['used'] ?? 0);
     $reservedCapacity = (float) $pdo->query(
@@ -595,7 +588,6 @@ function dashboard(PDO $pdo): array
         'tpa_used_ton' => $usedCapacity,
         'tpa_reserved_ton' => $reservedCapacity,
         'tpa_utilization_percent' => $totalCapacity > 0 ? min(100, round(($usedCapacity + $reservedCapacity) / $totalCapacity * 100, 1)) : 0,
-        'hazard_alerts' => $hazardAlerts,
         'status_counts' => $counts,
     ];
 }
@@ -1920,8 +1912,7 @@ try {
         }
         $stmt = $pdo->prepare(
             "SELECT DATE(selesai_pada) AS tanggal, COUNT(*) AS total_sampah,
-                    COALESCE(SUM(berat_kg), 0) AS total_berat_kg,
-                    SUM(CASE WHEN UPPER(tingkat_bahaya) IN ('TINGGI', 'B3', 'BERBAHAYA', 'HIGH', 'CRITICAL') THEN 1 ELSE 0 END) AS peringatan_b3
+                    COALESCE(SUM(berat_kg), 0) AS total_berat_kg
              FROM sampah WHERE status = 'selesai' AND DATE(selesai_pada) BETWEEN ? AND ?
              GROUP BY DATE(selesai_pada) ORDER BY tanggal DESC"
         );
@@ -1930,7 +1921,6 @@ try {
             'date' => (string) $row['tanggal'],
             'total_waste' => (int) $row['total_sampah'],
             'weight_kg' => (float) $row['total_berat_kg'],
-            'b3_alerts' => (int) $row['peringatan_b3'],
         ], $stmt->fetchAll());
         respond(['daily_reports' => $daily, 'data' => $daily, 'from' => $from, 'to' => $to]);
     }

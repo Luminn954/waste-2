@@ -37,7 +37,6 @@ function petugasAssistantContext(PDO $pdo, int $userId, array $worker): array
             'location' => (string) $row['lokasi'],
             'status' => (string) $row['status'],
             'status_label' => statusLabel((string) $row['status']),
-            'hazard_level' => (string) ($row['tingkat_bahaya'] ?? 'RENDAH'),
             'vehicle_plate' => (string) ($row['plat_nomor'] ?? ''),
             'tpa_name' => (string) ($row['nama_tpa'] ?? ''),
             'completion_status' => (string) ($row['completion_status'] ?? ''),
