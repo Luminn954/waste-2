@@ -77,6 +77,7 @@ function initialiseSchema(PDO $pdo): void
             email VARCHAR(160) NOT NULL DEFAULT '',
             password_hash VARCHAR(255) NOT NULL,
             nama VARCHAR(120) NOT NULL,
+            foto_profil VARCHAR(255) NULL,
             role VARCHAR(20) NOT NULL DEFAULT 'user',
             aktif TINYINT(1) NOT NULL DEFAULT 1,
             is_super_admin TINYINT(1) NOT NULL DEFAULT 0,
@@ -265,6 +266,7 @@ function initialiseSchema(PDO $pdo): void
 
     // Migrasi aman untuk database Waste 2 yang sudah pernah dipakai.
     addColumnIfMissing($pdo, 'users', 'email', "VARCHAR(160) NOT NULL DEFAULT '' AFTER username");
+    addColumnIfMissing($pdo, 'users', 'foto_profil', 'VARCHAR(255) NULL AFTER nama');
     addColumnIfMissing($pdo, 'users', 'is_super_admin', 'TINYINT(1) NOT NULL DEFAULT 0');
     addColumnIfMissing($pdo, 'petugas', 'user_id', 'BIGINT UNSIGNED NULL AFTER id');
     addColumnIfMissing($pdo, 'sampah', 'foto', "VARCHAR(255) NOT NULL DEFAULT '' AFTER berat_kg");
@@ -301,7 +303,9 @@ function initialiseSchema(PDO $pdo): void
 function addColumnIfMissing(PDO $pdo, string $table, string $column, string $definition): void
 {
     if (!columnExists($pdo, $table, $column)) {
-        $pdo->exec('ALTER TABLE ' . $table . ' ADD COLUMN ' . $column . ' ' . $definition);
+        // Rebuild the table explicitly instead of relying on INSTANT metadata.
+        // This avoids leaving an unreadable InnoDB table if XAMPP stops mid-migration.
+        $pdo->exec('ALTER TABLE ' . $table . ' ADD COLUMN ' . $column . ' ' . $definition . ', ALGORITHM=COPY');
     }
 }
 

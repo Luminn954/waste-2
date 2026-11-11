@@ -90,7 +90,7 @@ function authUser(PDO $pdo): ?array
         return null;
     }
     $stmt = $pdo->prepare(
-        'SELECT u.id, u.username, u.email, u.nama, u.role, u.aktif, u.is_super_admin
+        'SELECT u.id, u.username, u.email, u.nama, u.foto_profil, u.role, u.aktif, u.is_super_admin
          FROM auth_tokens t JOIN users u ON u.id = t.user_id
          WHERE t.token_hash = ? AND t.expires_at > NOW() LIMIT 1'
     );
@@ -137,6 +137,7 @@ function publicUser(array $user): array
         'email' => (string) ($user['email'] ?? ''),
         'name' => (string) $user['nama'],
         'nama' => (string) $user['nama'],
+        'profile_photo' => photoUrl($user['foto_profil'] ?? null),
         'role' => (string) $user['role'],
         'active' => (bool) $user['aktif'],
         'is_super_admin' => (bool) ($user['is_super_admin'] ?? false),
@@ -649,7 +650,7 @@ function adminWorkerRows(PDO $pdo): array
 {
     $rows = $pdo->query(
         "SELECT p.id, p.user_id, p.nama, p.zona_tugas, p.total_ambil, p.status_aktif,
-                u.username, u.aktif AS account_active,
+                u.username, u.foto_profil, u.aktif AS account_active,
                 (SELECT COUNT(*) FROM sampah s
                  WHERE s.petugas_id = p.id AND s.status = 'selesai') AS completed_tasks,
                 (SELECT COALESCE(SUM(s.berat_kg), 0) FROM sampah s
@@ -676,6 +677,7 @@ function adminWorkerRows(PDO $pdo): array
         'pending_confirmations' => (int) $row['pending_confirmations'],
         'active' => (bool) $row['status_aktif'] && $row['user_id'] !== null && (bool) ($row['account_active'] ?? false),
         'username' => (string) ($row['username'] ?? ''),
+        'profile_photo' => photoUrl($row['foto_profil'] ?? null),
         'has_account' => $row['user_id'] !== null,
     ], $rows);
 }
@@ -1065,7 +1067,7 @@ try {
             fail('Terlalu banyak percobaan masuk. Coba lagi dalam 15 menit.', 429);
         }
         $stmt = $pdo->prepare(
-            'SELECT id, username, email, password_hash, nama, role, aktif, is_super_admin FROM users
+            'SELECT id, username, email, password_hash, nama, foto_profil, role, aktif, is_super_admin FROM users
              WHERE (username = ? OR email = ?) LIMIT 1'
         );
         $stmt->execute([$identity, $identity]);
@@ -1125,7 +1127,7 @@ try {
         );
         $stmt->execute([$username, $email, password_hash($password, PASSWORD_DEFAULT), $name]);
         $id = (int) $pdo->lastInsertId();
-        $newUser = $pdo->prepare('SELECT id, username, email, nama, role, aktif FROM users WHERE id = ?');
+        $newUser = $pdo->prepare('SELECT id, username, email, nama, foto_profil, role, aktif FROM users WHERE id = ?');
         $newUser->execute([$id]);
         $user = $newUser->fetch();
         respond(['message' => 'Registrasi user berhasil.', 'user' => publicUser($user)], 201);
@@ -1162,10 +1164,46 @@ try {
         if ($email !== '' && $duplicate->fetch()) {
             fail('Email sudah digunakan akun lain.', 409);
         }
-        $pdo->prepare('UPDATE users SET nama = ?, email = ? WHERE id = ?')->execute([$name, $email, $user['id']]);
-        $fresh = $pdo->prepare('SELECT id, username, email, nama, role, aktif FROM users WHERE id = ?');
+        $pdo->beginTransaction();
+        try {
+            $pdo->prepare('UPDATE users SET nama = ?, email = ? WHERE id = ?')->execute([$name, $email, $user['id']]);
+            if ($user['role'] === 'petugas') {
+                $pdo->prepare('UPDATE petugas SET nama = ? WHERE user_id = ?')->execute([$name, $user['id']]);
+            } elseif ($user['role'] === 'admin') {
+                $pdo->prepare('UPDATE admin SET nama_admin = ? WHERE user_id = ?')->execute([$name, $user['id']]);
+            }
+            $fresh = $pdo->prepare('SELECT id, username, email, nama, foto_profil, role, aktif, is_super_admin FROM users WHERE id = ?');
+            $fresh->execute([$user['id']]);
+            $updatedUser = $fresh->fetch();
+            $pdo->commit();
+        } catch (Throwable $error) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $error;
+        }
+        respond(['message' => 'Profil diperbarui.', 'user' => publicUser($updatedUser)]);
+    }
+
+    if ($root === 'me' && $second === 'foto-profil' && $method === 'POST') {
+        $user = requireUser($pdo, 'admin');
+        $photo = saveUploadedPhoto('admin_' . (int) $user['id']);
+        if ($photo === '') {
+            fail('Pilih foto profil terlebih dahulu.', 422);
+        }
+        $pdo->prepare('UPDATE users SET foto_profil = ? WHERE id = ?')->execute([$photo, $user['id']]);
+        $fresh = $pdo->prepare(
+            'SELECT id, username, email, nama, foto_profil, role, aktif, is_super_admin FROM users WHERE id = ?'
+        );
         $fresh->execute([$user['id']]);
-        respond(['message' => 'Profil diperbarui.', 'user' => publicUser($fresh->fetch())]);
+        $updatedUser = $fresh->fetch();
+        if (!$updatedUser) {
+            fail('Profil admin tidak ditemukan setelah diperbarui.', 404);
+        }
+        respond([
+            'message' => 'Foto profil admin berhasil diperbarui.',
+            'user' => publicUser($updatedUser),
+        ]);
     }
 
     if ($root === 'me' && ($second === 'password' || $second === 'change-password') && in_array($method, ['PUT', 'PATCH'], true)) {
@@ -1490,6 +1528,28 @@ try {
     }
 
     $staffId = $root === 'admin' && $second === 'petugas' ? intSegment($third) : null;
+    if ($staffId !== null && ($parts[3] ?? '') === 'foto-profil' && $method === 'POST') {
+        requireUser($pdo, 'admin');
+        $stmt = $pdo->prepare(
+            'SELECT p.user_id, u.role FROM petugas p '
+            . 'JOIN users u ON u.id = p.user_id WHERE p.id = ? LIMIT 1'
+        );
+        $stmt->execute([$staffId]);
+        $worker = $stmt->fetch();
+        if (!$worker || $worker['role'] !== 'petugas') {
+            fail('Akun petugas tidak ditemukan.', 404);
+        }
+        $photo = saveUploadedPhoto('petugas_' . $staffId);
+        if ($photo === '') {
+            fail('Pilih foto profil terlebih dahulu.', 422);
+        }
+        $pdo->prepare('UPDATE users SET foto_profil = ? WHERE id = ?')->execute([$photo, $worker['user_id']]);
+        respond([
+            'message' => 'Foto profil petugas berhasil diperbarui.',
+            'profile_photo' => photoUrl($photo),
+            'workers' => adminWorkerRows($pdo),
+        ]);
+    }
     if ($staffId !== null && $method === 'DELETE' && ($parts[3] ?? '') === '') {
         $admin = requireUser($pdo, 'admin');
         $replacementId = (int) ($_GET['replacement_worker_id'] ?? $payload['replacement_worker_id'] ?? 0);
