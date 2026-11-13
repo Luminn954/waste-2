@@ -11,6 +11,7 @@ const state = {
   loadError: "",
   hasLoadedData: false,
 };
+const reportPhotoState = { file: null, previewUrl: "" };
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -156,7 +157,7 @@ function renderUser() {
   $("#profile-username").value = user.username || "";
 }
 
-function goPage(page) {
+function goPage(page, { scroll = true } = {}) {
   $$(".page").forEach((element) =>
     element.classList.toggle("is-active", element.id === `page-${page}`),
   );
@@ -164,7 +165,43 @@ function goPage(page) {
     element.classList.toggle("is-active", element.dataset.pageLink === page),
   );
   document.body.classList.remove("mobile-nav-open");
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  if (scroll) window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function chooseReportPhoto(file, input) {
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) {
+    input.value = "";
+    setMessage("report-message", "Ukuran foto maksimal 5 MB. Pilih foto yang lebih kecil.", "error");
+    return;
+  }
+  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+    input.value = "";
+    setMessage("report-message", "Pilih foto berformat JPG, PNG, atau WEBP.", "error");
+    return;
+  }
+  if (reportPhotoState.previewUrl) URL.revokeObjectURL(reportPhotoState.previewUrl);
+  reportPhotoState.file = file;
+  reportPhotoState.previewUrl = URL.createObjectURL(file);
+  $("#photo-preview-image").src = reportPhotoState.previewUrl;
+  $("#photo-preview-name").textContent = file.name;
+  $("#photo-name").hidden = true;
+  $("#photo-preview").hidden = false;
+  setMessage("report-message", "");
+}
+
+function clearReportPhoto() {
+  if (reportPhotoState.previewUrl) URL.revokeObjectURL(reportPhotoState.previewUrl);
+  reportPhotoState.file = null;
+  reportPhotoState.previewUrl = "";
+  $("#report-photo-camera").value = "";
+  $("#report-photo-gallery").value = "";
+  $("#photo-preview-image").removeAttribute("src");
+  $("#photo-preview-name").textContent = "";
+  $("#photo-preview").hidden = true;
+  $("#photo-name").hidden = false;
+  $("#photo-name").textContent = "Belum ada foto dipilih";
+  setMessage("report-message", "");
 }
 
 function statusLabel(status) {
@@ -231,7 +268,7 @@ function statusBadge(report) {
 function reportCard(report, compact = false) {
   const photo = safeUrl(report.photo || report.foto);
   const thumb = photo
-    ? `<img src="${escapeHtml(photo)}" alt="Foto laporan" loading="lazy">`
+    ? `<img src="${escapeHtml(photo)}" alt="Foto TKP laporan" loading="lazy">`
     : `<span class="report-placeholder">♻</span>`;
   return `<button class="report-item ${compact ? "is-compact" : ""}" type="button" data-report-id="${Number(report.id) || 0}">
     <span class="report-thumb">${thumb}</span>
@@ -361,7 +398,7 @@ function openReportModal(id, showFullTimeline = false) {
   $("#modal-content").innerHTML =
     `<div class="modal-heading"><span class="eyebrow">DETAIL LAPORAN</span><h2>${escapeHtml(report.code || report.kode_laporan)}</h2><p>${escapeHtml(report.type || report.jenis)} · ${formatDate(report.report_date || report.tanggal_lapor)}</p></div>
     <div class="modal-status">${statusBadge(report)}<span>${escapeHtml(report.location || report.lokasi)}</span></div>
-    ${photo ? `<a class="modal-photo" href="${escapeHtml(photo)}" target="_blank" rel="noreferrer"><img src="${escapeHtml(photo)}" alt="Foto laporan"></a>` : ""}
+    ${photo ? `<a class="modal-photo" href="${escapeHtml(photo)}" target="_blank" rel="noreferrer"><img src="${escapeHtml(photo)}" alt="Foto kondisi di lokasi laporan"></a>` : ""}
     <div class="detail-grid"><div><small>Lokasi</small><strong>${escapeHtml(report.location || report.lokasi)}</strong></div><div><small>Berat perkiraan</small><strong>${Number(report.weight_kg || report.berat_kg || 0).toLocaleString("id-ID")} kg</strong></div><div class="detail-full"><small>Deskripsi</small><strong>${escapeHtml(report.description || report.deskripsi || "Tidak ada deskripsi tambahan.")}</strong></div></div>
     <div class="timeline"><span class="eyebrow">PROGRES LAPORAN · ${showFullTimeline ? "RIWAYAT LENGKAP" : "TAHAP UTAMA"}</span>${timelineMarkup}${timelineToggle}</div>`;
   $("#report-modal").hidden = false;
@@ -435,15 +472,13 @@ async function handleReport(event) {
   form.append("lokasi", $("#report-location").value.trim());
   form.append("deskripsi", $("#report-description").value.trim());
   form.append("tanggal_lapor", $("#report-date").value);
-  const photo = $("#report-photo").files[0];
+  const photo = reportPhotoState.file;
   if (photo) form.append("foto", photo);
   try {
     await api("POST", "/laporan", form, true);
     $("#report-form").reset();
     $("#report-date").value = localDateInputValue();
-    $("#photo-preview").hidden = true;
-    $("#photo-preview").innerHTML = "";
-    $("#photo-name").textContent = "Belum ada foto dipilih";
+    clearReportPhoto();
     await refreshData();
     goPage("dashboard");
     toast("Laporan terkirim dan menunggu verifikasi admin.");
@@ -515,6 +550,12 @@ function bindEvents() {
   $("#retry-session").addEventListener("click", retrySessionRestore);
   $("#register-form").addEventListener("submit", handleRegister);
   $("#report-form").addEventListener("submit", handleReport);
+  $("#take-report-photo").addEventListener("click", () => $("#report-photo-camera").click());
+  $("#choose-report-photo").addEventListener("click", () => $("#report-photo-gallery").click());
+  [$("#report-photo-camera"), $("#report-photo-gallery")].forEach((input) => {
+    input.addEventListener("change", (event) => chooseReportPhoto(event.currentTarget.files[0], event.currentTarget));
+  });
+  $("#remove-report-photo").addEventListener("click", clearReportPhoto);
   $("#profile-form").addEventListener("submit", handleProfile);
   $("#password-form").addEventListener("submit", handlePassword);
   $("#logout-button").addEventListener("click", logout);
@@ -526,6 +567,16 @@ function bindEvents() {
   $("#user-menu").addEventListener("click", () => goPage("profile"));
 
   document.addEventListener("click", (event) => {
+    const photoShortcut = event.target.closest("[data-photo-report]");
+    if (photoShortcut) {
+      event.preventDefault();
+      goPage("reports", { scroll: false });
+      requestAnimationFrame(() => {
+        $("#report-photo-section").scrollIntoView({ behavior: "smooth", block: "center" });
+        $("#take-report-photo").focus({ preventScroll: true });
+      });
+      return;
+    }
     const historyToggle = event.target.closest("[data-toggle-report-history]");
     if (historyToggle) {
       openReportModal(
@@ -569,20 +620,6 @@ function bindEvents() {
       );
     }),
   );
-  $("#report-photo").addEventListener("change", () => {
-    const file = $("#report-photo").files[0];
-    $("#photo-name").textContent = file
-      ? `${file.name} · ${(file.size / 1024 / 1024).toFixed(2)} MB`
-      : "Belum ada foto dipilih";
-    const preview = $("#photo-preview");
-    if (!file) {
-      preview.hidden = true;
-      preview.innerHTML = "";
-      return;
-    }
-    preview.innerHTML = `<img src="${escapeHtml(URL.createObjectURL(file))}" alt="Preview foto laporan">`;
-    preview.hidden = false;
-  });
   $("#use-location").addEventListener("click", () => {
     if (!navigator.geolocation) {
       toast("Browser ini tidak mendukung lokasi otomatis.", "error");

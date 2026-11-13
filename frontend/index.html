@@ -240,6 +240,22 @@
             </div>
           </div>
 
+          <div class="photo-report-shortcut">
+            <span class="photo-shortcut-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 7.5h3l1.5-2h7l1.5 2h3a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 20 19.5H4A1.5 1.5 0 0 1 2.5 18V9A1.5 1.5 0 0 1 4 7.5Z" />
+                <circle cx="12" cy="13" r="3.5" />
+              </svg>
+            </span>
+            <div class="photo-shortcut-copy">
+              <strong>Foto kondisi di lokasi</strong>
+              <p>Lampirkan foto TKP agar petugas mudah mengenali titiknya.</p>
+            </div>
+            <button class="photo-shortcut-button" data-photo-report type="button">
+              Buat laporan <b aria-hidden="true">→</b>
+            </button>
+          </div>
+
           <div class="section-heading category-heading">
             <div>
               <span class="eyebrow">MULAI DARI JENISNYA</span>
@@ -394,17 +410,48 @@
                   type="button"
                 >
                   ⌖ Gunakan lokasi saya</button
-                ><label
-                  >Foto sampah <span class="optional">maks. 5 MB</span
-                  ><input
-                    id="report-photo"
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp,image/gif"
-                  /><span id="photo-name" class="file-hint"
-                    >Belum ada foto dipilih</span
-                  ></label
                 >
-                <div id="photo-preview" class="photo-preview" hidden></div>
+                <div id="report-photo-section" class="report-photo-field">
+                  <div class="photo-field-heading">
+                    <div>
+                      <strong>Foto TKP <span class="optional">opsional · maks. 5 MB</span></strong>
+                      <p>Ambil foto kondisi sampah atau pilih dari galeri.</p>
+                    </div>
+                    <span class="photo-field-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M4 7.5h3l1.5-2h7l1.5 2h3a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 20 19.5H4A1.5 1.5 0 0 1 2.5 18V9A1.5 1.5 0 0 1 4 7.5Z" />
+                        <circle cx="12" cy="13" r="3.5" />
+                      </svg>
+                    </span>
+                  </div>
+                  <input id="report-photo-camera" class="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" tabindex="-1" aria-hidden="true" />
+                  <input id="report-photo-gallery" class="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp" tabindex="-1" aria-hidden="true" />
+                  <div class="photo-upload-actions">
+                    <button id="take-report-photo" class="photo-action-button is-primary" type="button">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M4 7.5h3l1.5-2h7l1.5 2h3a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 20 19.5H4A1.5 1.5 0 0 1 2.5 18V9A1.5 1.5 0 0 1 4 7.5Z" />
+                        <circle cx="12" cy="13" r="3.5" />
+                      </svg>
+                      Ambil foto
+                    </button>
+                    <button id="choose-report-photo" class="photo-action-button" type="button">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <rect x="3" y="4" width="18" height="16" rx="2" />
+                        <circle cx="8.5" cy="9" r="1.5" />
+                        <path d="m4 17 5-5 3 3 2-2 6 5" />
+                      </svg>
+                      Pilih dari galeri
+                    </button>
+                  </div>
+                  <p id="photo-name" class="file-hint" role="status" aria-live="polite">Belum ada foto dipilih</p>
+                  <div id="photo-preview" class="photo-preview" hidden>
+                    <img id="photo-preview-image" alt="Pratinjau foto TKP" />
+                    <div class="photo-preview-caption">
+                      <span><strong id="photo-preview-name"></strong><small>Foto siap dilampirkan ke laporan.</small></span>
+                      <button id="remove-report-photo" class="photo-remove-button" type="button">Hapus</button>
+                    </div>
+                  </div>
+                </div>
                 <label
                   >Deskripsi singkat
                   <textarea

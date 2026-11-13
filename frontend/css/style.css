@@ -1164,6 +1164,206 @@ input:disabled {
   max-height: 180px;
   object-fit: cover;
 }
+.photo-report-shortcut {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  margin: 0 0 24px;
+  border-radius: 16px;
+  padding: 13px 15px;
+  background: #e8f2e9;
+}
+.photo-shortcut-icon,
+.photo-field-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: var(--green-dark);
+  background: rgba(22, 124, 106, 0.12);
+}
+.photo-shortcut-icon {
+  width: 40px;
+  height: 40px;
+}
+.photo-shortcut-icon svg,
+.photo-field-icon svg {
+  width: 21px;
+  height: 21px;
+}
+.photo-shortcut-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+.photo-shortcut-copy strong {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+.photo-shortcut-copy p {
+  color: #526a5f;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.photo-shortcut-button {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 11px;
+  padding: 0 12px;
+  color: #fff;
+  background: var(--green-dark);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.photo-shortcut-button:hover,
+.photo-action-button:hover {
+  filter: brightness(0.96);
+}
+.photo-report-shortcut button:focus-visible,
+.photo-action-button:focus-visible,
+.photo-remove-button:focus-visible {
+  outline: 3px solid rgba(22, 124, 106, 0.3);
+  outline-offset: 3px;
+}
+.report-photo-field {
+  display: grid;
+  gap: 10px;
+  scroll-margin: 24px;
+}
+.photo-field-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.photo-field-heading > div {
+  display: grid;
+  gap: 4px;
+}
+.photo-field-heading strong {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+.photo-field-heading p {
+  color: #526a5f;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.photo-field-icon {
+  width: 36px;
+  height: 36px;
+}
+.photo-field-heading .optional {
+  margin-left: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.photo-upload-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.photo-action-button {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 12px;
+  padding: 0 13px;
+  color: var(--green-dark);
+  background: #edf5ef;
+  font-size: 12px;
+  font-weight: 650;
+  transition: background-color 160ms ease, transform 160ms ease;
+}
+.photo-action-button:active {
+  transform: scale(0.98);
+}
+.photo-action-button.is-primary {
+  color: #fff;
+  background: var(--green);
+}
+.photo-action-button svg {
+  width: 18px;
+  height: 18px;
+}
+.file-hint {
+  color: #526a5f;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.photo-preview {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  max-height: none;
+  border-radius: 14px;
+  padding: 9px;
+  background: #f1f6f1;
+}
+.photo-preview img {
+  width: 104px;
+  height: 84px;
+  max-height: none;
+  border-radius: 10px;
+  object-fit: cover;
+}
+.photo-preview-caption {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.photo-preview-caption > span {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+.photo-preview-caption strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.photo-preview-caption small {
+  color: #526a5f;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.photo-remove-button {
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 9px;
+  padding: 7px 9px;
+  color: #8c3e3e;
+  background: #f7e9e6;
+  font-size: 11px;
+  font-weight: 650;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 .history-card {
   min-height: 540px;
 }
@@ -2413,4 +2613,47 @@ textarea:focus {
   .report-side .status-badge { max-width: 105px; overflow: hidden; text-overflow: ellipsis; }
   .report-item { grid-template-columns: 34px minmax(0, 1fr) auto; gap: 7px; }
   .report-thumb { width: 34px; height: 34px; }
+}
+
+@media (max-width: 560px) {
+  .photo-report-shortcut {
+    grid-template-columns: 36px minmax(0, 1fr) auto;
+    gap: 9px;
+    padding: 11px;
+  }
+  .photo-shortcut-icon {
+    width: 36px;
+    height: 36px;
+  }
+  .photo-shortcut-copy strong { font-size: 12px; }
+  .photo-shortcut-copy p { font-size: 11px; }
+  .photo-shortcut-button {
+    min-height: 36px;
+    gap: 4px;
+    padding: 0 9px;
+    font-size: 11px;
+  }
+  .photo-upload-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .photo-action-button {
+    gap: 6px;
+    padding: 0 8px;
+    font-size: 11px;
+  }
+  .photo-preview {
+    grid-template-columns: 82px minmax(0, 1fr);
+    gap: 9px;
+  }
+  .photo-preview img {
+    width: 82px;
+    height: 76px;
+  }
+  .photo-preview-caption {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .photo-preview-caption strong { max-width: 100%; }
 }
