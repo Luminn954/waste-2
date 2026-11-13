@@ -119,6 +119,8 @@ function initialiseSchema(PDO $pdo): void
             jenis VARCHAR(40) NOT NULL,
             berat_kg DECIMAL(10,2) NOT NULL DEFAULT 0,
             foto VARCHAR(255) NOT NULL DEFAULT '',
+            foto_bukti_lokasi VARCHAR(255) NULL,
+            foto_lokasi_dikirim_pada DATETIME NULL,
             lokasi VARCHAR(255) NOT NULL,
             deskripsi TEXT NULL,
             tanggal_lapor DATE NULL,
@@ -270,6 +272,8 @@ function initialiseSchema(PDO $pdo): void
     addColumnIfMissing($pdo, 'users', 'is_super_admin', 'TINYINT(1) NOT NULL DEFAULT 0');
     addColumnIfMissing($pdo, 'petugas', 'user_id', 'BIGINT UNSIGNED NULL AFTER id');
     addColumnIfMissing($pdo, 'sampah', 'foto', "VARCHAR(255) NOT NULL DEFAULT '' AFTER berat_kg");
+    addColumnIfMissing($pdo, 'sampah', 'foto_bukti_lokasi', 'VARCHAR(255) NULL AFTER foto');
+    addColumnIfMissing($pdo, 'sampah', 'foto_lokasi_dikirim_pada', 'DATETIME NULL AFTER foto_bukti_lokasi');
     addColumnIfMissing($pdo, 'sampah', 'deskripsi', "TEXT NULL AFTER lokasi");
     addColumnIfMissing($pdo, 'sampah', 'tanggal_lapor', "DATE NULL AFTER deskripsi");
     addColumnIfMissing($pdo, 'sampah', 'tingkat_bahaya', "VARCHAR(20) NOT NULL DEFAULT 'RENDAH'");

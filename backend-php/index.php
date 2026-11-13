@@ -254,6 +254,8 @@ function reportRow(PDO $pdo, array $row, bool $includeHistory = false): array
         'completion_proof_photo' => photoUrl($row['completion_photo'] ?? null),
         'completion_submitted_at' => (string) ($row['completion_submitted_at'] ?? ''),
         'completion_review_note' => (string) ($row['completion_review_note'] ?? ''),
+        'location_evidence_photo' => photoUrl($row['foto_bukti_lokasi'] ?? null),
+        'location_evidence_submitted_at' => (string) ($row['foto_lokasi_dikirim_pada'] ?? ''),
     ];
     if ($includeHistory) {
         $result['timeline'] = statusHistory($pdo, (int) $row['id']);
@@ -595,11 +597,27 @@ function dashboard(PDO $pdo): array
 
 function statistics(PDO $pdo): array
 {
-    $monthly = $pdo->query(
+    $periodEnd = new DateTimeImmutable('first day of this month');
+    $periodStart = $periodEnd->modify('-6 months');
+    $monthlyStmt = $pdo->prepare(
         "SELECT DATE_FORMAT(COALESCE(tanggal_lapor, dibuat_pada), '%Y-%m') AS periode,
                 COUNT(*) AS total
-         FROM sampah GROUP BY periode ORDER BY periode DESC LIMIT 12"
-    )->fetchAll();
+         FROM sampah
+         WHERE COALESCE(tanggal_lapor, dibuat_pada) >= ?
+           AND COALESCE(tanggal_lapor, dibuat_pada) < ?
+         GROUP BY periode ORDER BY periode DESC"
+    );
+    $monthlyStmt->execute([$periodStart->format('Y-m-d'), $periodEnd->format('Y-m-d')]);
+    $monthlyTotals = [];
+    foreach ($monthlyStmt->fetchAll() as $row) {
+        $monthlyTotals[(string) $row['periode']] = (int) $row['total'];
+    }
+    $monthly = [];
+    for ($month = $periodStart; $month < $periodEnd; $month = $month->modify('+1 month')) {
+        $period = $month->format('Y-m');
+        $monthly[] = ['periode' => $period, 'total' => $monthlyTotals[$period] ?? 0];
+    }
+    $monthly = array_reverse($monthly);
     $types = $pdo->query(
         'SELECT jenis AS jenis_sampah, COUNT(*) AS total, COALESCE(SUM(berat_kg), 0) AS berat_kg
          FROM sampah GROUP BY jenis ORDER BY total DESC'
@@ -2317,6 +2335,78 @@ try {
             fail('Catatan tugas tidak ditemukan di Arsip Petugas.', 404);
         }
         respond(['message' => 'Catatan tugas dikembalikan ke riwayat aktif.']);
+    }
+
+    if ($root === 'petugas' && $second === 'tugas'
+        && ($parts[3] ?? '') === 'bukti-lokasi'
+        && ($taskId = intSegment($third)) !== null && $method === 'POST') {
+        $user = requireUser($pdo, 'petugas');
+        $worker = workerProfile($pdo, (int) $user['id']);
+        if (!$worker) {
+            fail('Akun belum terhubung ke data petugas aktif. Hubungi admin.', 403);
+        }
+        if (!isset($_FILES['foto']) || !is_array($_FILES['foto'])
+            || (int) ($_FILES['foto']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+            fail('Foto kondisi di lokasi wajib dilampirkan.', 422);
+        }
+
+        $pdo->beginTransaction();
+        $photo = '';
+        try {
+            $stmt = $pdo->prepare('SELECT * FROM sampah WHERE id = ? FOR UPDATE');
+            $stmt->execute([$taskId]);
+            $report = $stmt->fetch();
+            if (!$report) {
+                $pdo->rollBack();
+                fail('Penugasan tidak ditemukan.', 404);
+            }
+            if ((int) ($report['petugas_id'] ?? 0) !== (int) $worker['id']) {
+                $pdo->rollBack();
+                fail('Penugasan ini bukan milik akun petugas tersebut.', 403);
+            }
+            if (!in_array((string) $report['status'], ['ditugaskan', 'diangkut'], true)) {
+                $pdo->rollBack();
+                fail('Foto lokasi hanya dapat dikirim selama tugas masih berjalan.', 409);
+            }
+            if (!empty($report['foto_bukti_lokasi'])) {
+                $pdo->rollBack();
+                fail('Foto lokasi untuk tugas ini sudah dikirim.', 409);
+            }
+
+            $photo = saveUploadedPhoto('bukti_lokasi_petugas');
+            if ($photo === '') {
+                $pdo->rollBack();
+                fail('Foto kondisi di lokasi wajib dilampirkan.', 422);
+            }
+            $pdo->prepare(
+                'UPDATE sampah SET foto_bukti_lokasi = ?, foto_lokasi_dikirim_pada = NOW() WHERE id = ?'
+            )->execute([$photo, $taskId]);
+            $pdo->prepare(
+                'INSERT INTO riwayat_status (sampah_id, status, diubah_oleh, catatan) VALUES (?, ?, ?, ?)'
+            )->execute([
+                $taskId,
+                (string) $report['status'],
+                $user['id'],
+                'Petugas mengirim foto kondisi sampah di lokasi laporan untuk Admin.'
+            ]);
+            $pdo->commit();
+        } catch (Throwable $error) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            if ($photo !== '') {
+                $photoPath = __DIR__ . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $photo);
+                if (is_file($photoPath)) {
+                    @unlink($photoPath);
+                }
+            }
+            throw $error;
+        }
+        $updated = findReport($pdo, $taskId);
+        respond([
+            'message' => 'Foto lokasi berhasil dikirim dan dapat dilihat Admin.',
+            'report' => reportRow($pdo, $updated, true),
+        ], 201);
     }
 
     if ($root === 'petugas' && $second === 'tugas'

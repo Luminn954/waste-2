@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS sampah (
   jenis VARCHAR(40) NOT NULL,
   berat_kg DECIMAL(10,2) NOT NULL DEFAULT 0,
   foto VARCHAR(255) NOT NULL DEFAULT '',
+  foto_bukti_lokasi VARCHAR(255) NULL,
+  foto_lokasi_dikirim_pada DATETIME NULL,
   lokasi VARCHAR(255) NOT NULL,
   deskripsi TEXT NULL,
   tanggal_lapor DATE NULL,
