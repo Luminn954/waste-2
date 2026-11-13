@@ -1279,6 +1279,9 @@ try {
             fail('Berat sampah tidak valid.', 422);
         }
         $photo = saveUploadedPhoto();
+        if ($photo === '') {
+            fail('Foto kondisi awal wajib dilampirkan sebelum laporan dikirim.', 422);
+        }
         $code = newReportCode($pdo);
         $date = trim((string) ($payload['tanggal_lapor'] ?? date('Y-m-d')));
         if (!preg_match('/^\\d{4}-\\d{2}-\\d{2}$/', $date)) {

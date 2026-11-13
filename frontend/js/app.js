@@ -268,7 +268,7 @@ function statusBadge(report) {
 function reportCard(report, compact = false) {
   const photo = safeUrl(report.photo || report.foto);
   const thumb = photo
-    ? `<img src="${escapeHtml(photo)}" alt="Foto TKP laporan" loading="lazy">`
+    ? `<img src="${escapeHtml(photo)}" alt="Kondisi awal dari foto warga" loading="lazy">`
     : `<span class="report-placeholder">♻</span>`;
   return `<button class="report-item ${compact ? "is-compact" : ""}" type="button" data-report-id="${Number(report.id) || 0}">
     <span class="report-thumb">${thumb}</span>
@@ -389,6 +389,18 @@ function openReportModal(id, showFullTimeline = false) {
   const compactTimeline = compactReportTimeline(timeline);
   const visibleTimeline = showFullTimeline ? timeline : compactTimeline;
   const photo = safeUrl(report.photo || report.foto);
+  const afterPhoto = safeUrl(report.completion_proof_photo || report.completionProofPhoto);
+  const photoSteps = [
+    photo
+      ? `<a class="report-photo-step" href="${escapeHtml(photo)}" target="_blank" rel="noreferrer"><strong>Sebelum · foto warga</strong><img src="${escapeHtml(photo)}" alt="Kondisi sebelum ditangani, dilaporkan warga"></a>`
+      : "",
+    afterPhoto
+      ? `<a class="report-photo-step" href="${escapeHtml(afterPhoto)}" target="_blank" rel="noreferrer"><strong>Sesudah · foto petugas</strong><img src="${escapeHtml(afterPhoto)}" alt="Kondisi sesudah ditangani, bukti petugas"></a>`
+      : "",
+  ].filter(Boolean);
+  const photoComparison = photoSteps.length
+    ? `<div class="report-photo-comparison ${photoSteps.length === 1 ? "is-single" : ""}">${photoSteps.join("")}</div>`
+    : "";
   const timelineMarkup = visibleTimeline.length
     ? visibleTimeline.map((item) => `<div class="timeline-item"><i></i><div><strong>${escapeHtml(item.compactLabel || item.status_label || statusLabel(item.status))}</strong><small>${formatDate(item.tanggal_update, true)} · ${escapeHtml(item.changed_by || "Sistem")}</small>${item.note || item.catatan ? `<p>${escapeHtml(item.note || item.catatan)}</p>` : ""}</div></div>`).join("")
     : `<p class="muted-copy">Riwayat status belum tersedia.</p>`;
@@ -398,7 +410,7 @@ function openReportModal(id, showFullTimeline = false) {
   $("#modal-content").innerHTML =
     `<div class="modal-heading"><span class="eyebrow">DETAIL LAPORAN</span><h2>${escapeHtml(report.code || report.kode_laporan)}</h2><p>${escapeHtml(report.type || report.jenis)} · ${formatDate(report.report_date || report.tanggal_lapor)}</p></div>
     <div class="modal-status">${statusBadge(report)}<span>${escapeHtml(report.location || report.lokasi)}</span></div>
-    ${photo ? `<a class="modal-photo" href="${escapeHtml(photo)}" target="_blank" rel="noreferrer"><img src="${escapeHtml(photo)}" alt="Foto kondisi di lokasi laporan"></a>` : ""}
+    ${photoComparison}
     <div class="detail-grid"><div><small>Lokasi</small><strong>${escapeHtml(report.location || report.lokasi)}</strong></div><div><small>Berat perkiraan</small><strong>${Number(report.weight_kg || report.berat_kg || 0).toLocaleString("id-ID")} kg</strong></div><div class="detail-full"><small>Deskripsi</small><strong>${escapeHtml(report.description || report.deskripsi || "Tidak ada deskripsi tambahan.")}</strong></div></div>
     <div class="timeline"><span class="eyebrow">PROGRES LAPORAN · ${showFullTimeline ? "RIWAYAT LENGKAP" : "TAHAP UTAMA"}</span>${timelineMarkup}${timelineToggle}</div>`;
   $("#report-modal").hidden = false;
@@ -463,6 +475,13 @@ async function handleRegister(event) {
 async function handleReport(event) {
   event.preventDefault();
   const messageId = "report-message";
+  const photo = reportPhotoState.file;
+  if (!photo) {
+    setMessage(messageId, "Lampirkan foto kondisi awal sebelum mengirim laporan.", "error");
+    $("#report-photo-section").scrollIntoView({ behavior: "smooth", block: "center" });
+    $("#take-report-photo").focus({ preventScroll: true });
+    return;
+  }
   setMessage(messageId, "Mengirim laporan...", "info");
   const button = $("#report-form button[type=submit]");
   button.disabled = true;
@@ -472,8 +491,7 @@ async function handleReport(event) {
   form.append("lokasi", $("#report-location").value.trim());
   form.append("deskripsi", $("#report-description").value.trim());
   form.append("tanggal_lapor", $("#report-date").value);
-  const photo = reportPhotoState.file;
-  if (photo) form.append("foto", photo);
+  form.append("foto", photo);
   try {
     await api("POST", "/laporan", form, true);
     $("#report-form").reset();
@@ -481,7 +499,7 @@ async function handleReport(event) {
     clearReportPhoto();
     await refreshData();
     goPage("dashboard");
-    toast("Laporan terkirim dan menunggu verifikasi admin.");
+    toast("Laporan dan foto kondisi awal terkirim untuk diverifikasi.");
   } catch (error) {
     setMessage(messageId, error.message, "error");
   } finally {

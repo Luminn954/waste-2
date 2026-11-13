@@ -1345,6 +1345,33 @@ input:disabled {
   font-size: 11px;
   line-height: 1.4;
 }
+.report-photo-comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 4px 0 16px;
+}
+.report-photo-comparison.is-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+.report-photo-step {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+  color: var(--ink);
+}
+.report-photo-step strong {
+  font-size: 12px;
+  font-weight: 650;
+}
+.report-photo-step img {
+  display: block;
+  width: 100%;
+  height: 150px;
+  border-radius: 12px;
+  background: var(--mint);
+  object-fit: cover;
+}
 .photo-remove-button {
   flex: 0 0 auto;
   border: 0;
@@ -2616,6 +2643,7 @@ textarea:focus {
 }
 
 @media (max-width: 560px) {
+  .report-photo-step img { height: 112px; }
   .photo-report-shortcut {
     grid-template-columns: 36px minmax(0, 1fr) auto;
     gap: 9px;
