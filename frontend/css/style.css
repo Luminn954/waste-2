@@ -1008,60 +1008,58 @@ input:disabled {
   color: #bd6b61;
   background: #fae9e6;
 }
-.mini-flow {
+.active-report-content {
+  margin-top: 17px;
+}
+.active-report-entry {
   display: grid;
-  grid-template-columns: 1fr auto 1fr auto 1fr;
-  align-items: center;
-  gap: 7px;
-  margin-top: 28px;
+  justify-items: start;
+  gap: 12px;
 }
-.mini-flow div {
-  display: grid;
-  gap: 5px;
-  text-align: center;
-}
-.mini-flow b {
-  display: inline-flex;
-  width: 32px;
-  height: 32px;
-  align-items: center;
-  justify-content: center;
-  justify-self: center;
-  border-radius: 50%;
-  color: var(--green-dark);
-  background: var(--mint);
-  font-size: 10px;
-}
-.mini-flow span {
-  color: var(--muted);
-  font-size: 10px;
-}
-.mini-flow > i {
-  color: #b5cbc3;
-  font-size: 18px;
-  font-style: normal;
-}
-.tip-box {
+.active-report-top {
   display: flex;
-  gap: 11px;
-  align-items: flex-start;
-  margin-top: 29px;
-  border-radius: 14px;
-  padding: 13px;
-  color: #6b6b56;
-  background: #fbf5e7;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
-.tip-box > span {
-  color: #c89544;
-  font-size: 20px;
+.active-report-top > strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.tip-box p {
+.active-report-top .status-badge {
   font-size: 10px;
+}
+.active-report-meta {
+  margin: -5px 0 2px;
+  color: #53655b;
+  font-size: 12px;
   line-height: 1.5;
 }
-.tip-box strong {
-  color: #85642f;
+.active-report-next {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding-top: 10px;
+  color: var(--ink);
+}
+.active-report-next strong {
+  color: var(--green-dark);
   font-size: 11px;
+}
+.active-report-next p,
+.active-report-empty p {
+  color: #53655b;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.active-report-empty {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
 }
 .empty-state {
   display: grid;
@@ -1958,12 +1956,6 @@ input:disabled {
     width: 36px;
     height: 36px;
   }
-  .mini-flow {
-    gap: 4px;
-  }
-  .mini-flow > i {
-    font-size: 13px;
-  }
   .toast {
     right: 12px;
     bottom: 12px;
@@ -2394,17 +2386,6 @@ textarea:focus {
 .status-ditolak {
   color: #a95755;
   background: #f4e2df;
-}
-
-.mini-flow {
-  margin-top: 18px;
-}
-
-.tip-box {
-  margin-top: 15px;
-  padding: 11px;
-  border-radius: 13px;
-  background: #f5f6ed;
 }
 
 .page-heading {

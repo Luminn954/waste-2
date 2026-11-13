@@ -277,6 +277,77 @@ function reportCard(report, compact = false) {
   </button>`;
 }
 
+function nextReportStep(report) {
+  if (report.completion_status === "menunggu") {
+    return "Foto setelah penanganan sudah dikirim. Admin sedang memeriksa bukti.";
+  }
+  if (report.completion_status === "perlu_perbaikan") {
+    return "Admin meminta perbaikan bukti. Petugas sedang menindaklanjutinya.";
+  }
+  const steps = {
+    menunggu_verifikasi:
+      "Admin sedang memeriksa laporan. Kamu belum perlu melakukan tindakan.",
+    diproses:
+      "Laporan masuk tahap penanganan. Pantau pembaruan status di sini.",
+    ditugaskan: "Petugas sudah ditugaskan dan akan menangani lokasi.",
+    diangkut:
+      "Sampah sedang diangkut. Petugas akan mengirim foto setelah penanganan.",
+  };
+  return steps[report.status] || "Lihat detail laporan untuk mengetahui pembaruan berikutnya.";
+}
+
+function renderActiveReport() {
+  const activeStatuses = [
+    "menunggu_verifikasi",
+    "diproses",
+    "ditugaskan",
+    "diangkut",
+  ];
+  const report = state.reports.find((item) => activeStatuses.includes(item.status));
+  const content = $("#active-report-content");
+
+  if (!report) {
+    const allCompleted = state.reports.length > 0 && state.reports.every(
+      (item) => item.status === "selesai",
+    );
+    let message = "Tidak ada laporan yang sedang diproses. Status sebelumnya tersimpan di Riwayat.";
+    if (!state.reports.length) {
+      message = "Belum ada laporan aktif. Laporkan sampah di sekitarmu agar petugas bisa menindaklanjuti.";
+    } else if (allCompleted) {
+      message = "Semua laporanmu sudah selesai ditangani.";
+    }
+    content.innerHTML = `
+      <div class="active-report-empty">
+        <p>${message}</p>
+        <button class="text-button" data-page-link="reports" type="button">
+          Buat laporan →
+        </button>
+      </div>`;
+    return;
+  }
+
+  const code = escapeHtml(report.code || report.kode_laporan || "Laporan");
+  const type = escapeHtml(report.type || report.jenis || "Sampah");
+  const location = escapeHtml(report.location || report.lokasi || "Lokasi belum diisi");
+  content.innerHTML = `
+    <div class="active-report-entry">
+      <div class="active-report-top">
+        <strong>${code}</strong>
+        ${statusBadge(report)}
+      </div>
+      <p class="active-report-meta">
+        ${type} <span aria-hidden="true">·</span> ${location}
+      </p>
+      <div class="active-report-next">
+        <strong>Langkah berikutnya</strong>
+        <p>${nextReportStep(report)}</p>
+      </div>
+      <button class="text-button" type="button" data-report-id="${Number(report.id) || 0}">
+        Lihat progres →
+      </button>
+    </div>`;
+}
+
 function renderDashboard() {
   const reports = state.reports;
   const count = (status) =>
@@ -289,6 +360,7 @@ function renderDashboard() {
   $("#stat-process").textContent = processCount;
   $("#stat-done").textContent = count("selesai");
   const recent = reports.slice(0, 3);
+  renderActiveReport();
   $("#recent-list").innerHTML = recent.length
     ? recent.map((report) => reportCard(report, true)).join("")
     : `<div class="empty-state"><span>✦</span><strong>Belum ada laporan</strong><p>Yuk mulai dari laporan pertamamu.</p><button class="text-button" data-page-link="reports" type="button">Buat laporan →</button></div>`;
