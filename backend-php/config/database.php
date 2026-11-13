@@ -63,9 +63,56 @@ function db(): PDO
         );
     }
 
-    initialiseSchema($pdo);
-    seedDefaults($pdo);
+    ensureSchemaInitialized($pdo);
     return $pdo;
+}
+
+function ensureSchemaInitialized(PDO $pdo): void
+{
+    // Dashboard memuat banyak endpoint bersamaan; migrasi harus cukup sekali dan terserialisasi.
+    // Naikkan versi ini saat menambahkan perubahan skema baru.
+    $schemaVersion = 1;
+    $versionTable = 'smartwaste_schema_version';
+    $tableCheck = $pdo->prepare(
+        'SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?'
+    );
+    $tableCheck->execute([$versionTable]);
+    $tableExists = (int) $tableCheck->fetchColumn() > 0;
+
+    if ($tableExists) {
+        $currentVersion = (int) $pdo->query('SELECT COALESCE(MAX(version), 0) FROM ' . $versionTable)->fetchColumn();
+        if ($currentVersion >= $schemaVersion) {
+            return;
+        }
+    }
+
+    $lockName = 'sw-schema-' . substr(hash('sha256', DB_NAME), 0, 54);
+    $lock = $pdo->prepare('SELECT GET_LOCK(?, 30)');
+    $lock->execute([$lockName]);
+    if ((int) $lock->fetchColumn() !== 1) {
+        throw new RuntimeException('Inisialisasi database sedang digunakan. Coba lagi sebentar.');
+    }
+
+    try {
+        $pdo->exec(
+            'CREATE TABLE IF NOT EXISTS ' . $versionTable . ' (
+                version INT UNSIGNED NOT NULL PRIMARY KEY,
+                applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
+        );
+        $currentVersion = (int) $pdo->query('SELECT COALESCE(MAX(version), 0) FROM ' . $versionTable)->fetchColumn();
+        if ($currentVersion >= $schemaVersion) {
+            return;
+        }
+
+        initialiseSchema($pdo);
+        seedDefaults($pdo);
+        $recordVersion = $pdo->prepare('INSERT INTO ' . $versionTable . ' (version) VALUES (?)');
+        $recordVersion->execute([$schemaVersion]);
+    } finally {
+        $release = $pdo->prepare('SELECT RELEASE_LOCK(?)');
+        $release->execute([$lockName]);
+    }
 }
 
 function initialiseSchema(PDO $pdo): void
