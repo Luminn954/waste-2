@@ -881,6 +881,14 @@ input:disabled {
 .card-heading h3 {
   font-size: 17px;
 }
+.recent-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+.recent-card-actions .text-button {
+  white-space: nowrap;
+}
 .soft-label,
 .form-step {
   color: var(--soft);
@@ -1102,11 +1110,8 @@ input:disabled {
   font-size: 28px;
   transform: rotate(9deg);
 }
-.reports-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
-  gap: 17px;
-  align-items: start;
+.report-form-layout {
+  max-width: 760px;
 }
 .report-form-card .card-heading {
   align-items: flex-start;
@@ -1393,6 +1398,9 @@ input:disabled {
 }
 .history-card {
   min-height: 540px;
+}
+.history-card .soft-label {
+  font-size: 11px;
 }
 .filter-row {
   display: flex;
@@ -1862,7 +1870,6 @@ input:disabled {
     grid-template-columns: 1fr 1fr;
   }
   .dashboard-lower,
-  .reports-layout,
   .profile-layout {
     grid-template-columns: 1fr;
   }
@@ -2420,7 +2427,6 @@ textarea:focus {
   box-shadow: none;
 }
 
-.reports-layout,
 .profile-layout {
   gap: 13px;
 }
@@ -2582,7 +2588,7 @@ textarea:focus {
     gap: 1px;
     border-radius: 13px;
     padding: 4px 2px;
-    font-size: 9px;
+    font-size: 11px;
   }
 
   .nav-item span { font-size: 18px; }
@@ -2619,7 +2625,7 @@ textarea:focus {
 
   .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .stat-card { min-height: 105px; padding: 12px; }
-  .dashboard-lower, .reports-layout, .profile-layout { grid-template-columns: 1fr; gap: 11px; }
+  .dashboard-lower, .profile-layout { grid-template-columns: 1fr; gap: 11px; }
   .surface-card { padding: 15px; border-radius: 17px; }
   .history-card { min-height: 0; }
   .page-heading { margin-bottom: 14px; }

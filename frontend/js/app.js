@@ -288,7 +288,7 @@ function renderDashboard() {
   $("#stat-waiting").textContent = count("menunggu_verifikasi");
   $("#stat-process").textContent = processCount;
   $("#stat-done").textContent = count("selesai");
-  const recent = reports.slice(0, 4);
+  const recent = reports.slice(0, 3);
   $("#recent-list").innerHTML = recent.length
     ? recent.map((report) => reportCard(report, true)).join("")
     : `<div class="empty-state"><span>✦</span><strong>Belum ada laporan</strong><p>Yuk mulai dari laporan pertamamu.</p><button class="text-button" data-page-link="reports" type="button">Buat laporan →</button></div>`;
@@ -308,6 +308,12 @@ function renderReports() {
   $("#reports-list").innerHTML = visible.length
     ? visible.map((report) => reportCard(report)).join("")
     : `<div class="empty-state"><span>◌</span><strong>Tidak ada laporan di filter ini</strong><p>Data akan muncul setelah kamu mengirim laporan.</p></div>`;
+  const count = $("#history-count");
+  if (count) {
+    count.textContent = state.filter === "all"
+      ? `${visible.length} laporan`
+      : `${visible.length} dari ${state.reports.length} laporan`;
+  }
   $$(".filter-button").forEach((button) =>
     button.classList.toggle(
       "is-active",

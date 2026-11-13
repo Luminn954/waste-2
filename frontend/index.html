@@ -173,7 +173,10 @@
             <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3.5 10.5 8.5-7 8.5 7"/><path d="M5.5 9v11h13V9M9.5 20v-6h5v6"/></svg></span> Ringkasan
           </button>
           <button class="nav-item" data-page-link="reports" type="button">
-            <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3.5h10a2 2 0 0 1 2 2v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-14a2 2 0 0 1 2-2Z"/><path d="M9 8h6M9 12h6M12 15v4M10 17h4"/></svg></span> Laporan saya
+            <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3.5h10a2 2 0 0 1 2 2v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-14a2 2 0 0 1 2-2Z"/><path d="M9 8h6M9 12h6M12 15v4M10 17h4"/></svg></span> Laporan
+          </button>
+          <button class="nav-item" data-page-link="history" type="button">
+            <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 12a8.5 8.5 0 1 0 2.2-5.7L3.5 8.5"/><path d="M3.5 3.8v4.7h4.7M12 7v5l3.2 2"/></svg></span> Riwayat
           </button>
           <button class="nav-item" data-page-link="profile" type="button">
             <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.2"/><path d="M5 20c.4-3.2 3-5.2 7-5.2s6.6 2 7 5.2"/></svg></span> Profil
@@ -286,12 +289,8 @@
 
           <div class="section-heading">
             <div>
-              <span class="eyebrow">PERJALANAN LAPORAN</span>
               <h2>Ringkasan aktivitasmu</h2>
             </div>
-            <button class="text-button" data-page-link="reports" type="button">
-              Lihat semua <b>→</b>
-            </button>
           </div>
           <div class="stats-grid">
             <article class="stat-card stat-total">
@@ -321,10 +320,12 @@
             <article class="surface-card recent-card">
               <div class="card-heading">
                 <div>
-                  <span class="eyebrow">UPDATE TERBARU</span>
-                  <h3>Laporan terakhir</h3>
+                  <h3>Laporan terbaru</h3>
                 </div>
-                <span class="soft-label" id="last-sync">Baru saja</span>
+                <div class="recent-card-actions">
+                  <span class="soft-label" id="last-sync">Baru saja</span>
+                  <button class="text-button" data-page-link="history" type="button">Semua →</button>
+                </div>
               </div>
               <div id="recent-list" class="report-list compact-list"></div>
             </article>
@@ -358,17 +359,15 @@
         <section id="page-reports" class="page">
           <div class="page-heading">
             <div>
-              <span class="eyebrow">RUANG LAPORAN</span>
-              <h1>Laporan sampahmu</h1>
-              <p>Kirim laporan baru dan pantau perkembangannya dari sini.</p>
+              <h1>Buat laporan</h1>
+              <p>Kirim lokasi dan foto kondisi awal agar petugas bisa menindaklanjuti.</p>
             </div>
             <div class="heading-accent">♻</div>
           </div>
-          <div class="reports-layout">
+          <div class="report-form-layout">
             <article class="surface-card report-form-card">
               <div class="card-heading">
                 <div>
-                  <span class="eyebrow">LAPORAN BARU</span>
                   <h2>Jelaskan kondisi di lapangan</h2>
                 </div>
                 <span class="form-step">01 / 01</span>
@@ -468,57 +467,33 @@
                 </button>
               </form>
             </article>
-            <aside class="surface-card history-card">
-              <div class="card-heading">
-                <div>
-                  <span class="eyebrow">RIWAYAT</span>
-                  <h2>Semua laporan</h2>
-                </div>
-                <button
-                  id="refresh-reports"
-                  class="icon-button"
-                  type="button"
-                  title="Muat ulang"
-                >
-                  ↻
-                </button>
-              </div>
-              <div class="filter-row">
-                <button
-                  class="filter-button is-active"
-                  data-filter="all"
-                  type="button"
-                >
-                  Semua</button
-                ><button
-                  class="filter-button"
-                  data-filter="menunggu_verifikasi"
-                  type="button"
-                >
-                  Menunggu</button
-                ><button
-                  class="filter-button"
-                  data-filter="diproses"
-                  type="button"
-                >
-                  Diproses</button
-                ><button
-                  class="filter-button"
-                  data-filter="selesai"
-                  type="button"
-                >
-                  Selesai</button
-                ><button
-                  class="filter-button"
-                  data-filter="ditolak"
-                  type="button"
-                >
-                  Ditolak
-                </button>
-              </div>
-              <div id="reports-list" class="report-list"></div>
-            </aside>
           </div>
+        </section>
+
+        <section id="page-history" class="page">
+          <div class="page-heading">
+            <div>
+              <h1>Riwayat laporan</h1>
+              <p>Semua laporan dan status penanganannya tersimpan di sini.</p>
+            </div>
+          </div>
+          <article class="surface-card history-card">
+            <div class="card-heading">
+              <div>
+                <h2>Semua laporan</h2>
+                <span class="soft-label" id="history-count">0 laporan</span>
+              </div>
+              <button id="refresh-reports" class="icon-button" type="button" title="Muat ulang" aria-label="Muat ulang laporan">↻</button>
+            </div>
+            <div class="filter-row">
+              <button class="filter-button is-active" data-filter="all" type="button">Semua</button>
+              <button class="filter-button" data-filter="menunggu_verifikasi" type="button">Menunggu</button>
+              <button class="filter-button" data-filter="diproses" type="button">Diproses</button>
+              <button class="filter-button" data-filter="selesai" type="button">Selesai</button>
+              <button class="filter-button" data-filter="ditolak" type="button">Ditolak</button>
+            </div>
+            <div id="reports-list" class="report-list"></div>
+          </article>
         </section>
 
         <section id="page-profile" class="page">
