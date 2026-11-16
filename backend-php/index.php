@@ -2912,6 +2912,9 @@ try {
     if (databaseDriverErrorCode($error) === 1932) {
         error_log('[Smart Waste API] InnoDB table is unavailable: ' . $error->getMessage());
         respond([
+            'status' => 'degraded',
+            'database' => 'integrity_issue',
+            'service' => 'Smart Waste REST API',
             'code' => 'database_integrity_issue',
             'message' => 'Satu tabel database tidak dapat dibaca dan perlu dipulihkan dari salinan yang sehat.',
         ], 503);
@@ -2920,6 +2923,9 @@ try {
         error_log('[Smart Waste API] Database temporarily unavailable: ' . $error->getMessage());
         header('Retry-After: 2');
         respond([
+            'status' => 'degraded',
+            'database' => 'unavailable',
+            'service' => 'Smart Waste REST API',
             'code' => 'database_unavailable',
             'message' => 'Database sedang tidak dapat dijangkau. Pastikan MySQL XAMPP aktif, lalu coba lagi.',
         ], 503);
