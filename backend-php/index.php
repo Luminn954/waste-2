@@ -2909,6 +2909,14 @@ try {
 
     fail('Endpoint tidak ditemukan.', 404);
 } catch (PDOException $error) {
+    if (isTransientDatabaseConnectionError($error)) {
+        error_log('[Smart Waste API] Database temporarily unavailable: ' . $error->getMessage());
+        header('Retry-After: 2');
+        respond([
+            'code' => 'database_unavailable',
+            'message' => 'Database sedang tidak dapat dijangkau. Pastikan MySQL XAMPP aktif, lalu coba lagi.',
+        ], 503);
+    }
     respondServerError('Database error.', $error);
 } catch (Throwable $error) {
     respondServerError('Terjadi kesalahan pada server.', $error);

@@ -36,35 +36,70 @@ function db(): PDO
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         PDO::ATTR_EMULATE_PREPARES => false,
+        PDO::ATTR_TIMEOUT => 4,
     ];
 
     try {
-        $pdo = new PDO(
-            'mysql:host=' . DB_HOST . ';port=' . DB_PORT . ';dbname=' . DB_NAME . ';charset=utf8mb4',
-            DB_USER,
-            DB_PASS,
-            $options
-        );
+        $pdo = connectSmartWasteDatabase(DB_NAME, $options);
     } catch (PDOException $firstError) {
-        $server = new PDO(
-            'mysql:host=' . DB_HOST . ';port=' . DB_PORT . ';charset=utf8mb4',
-            DB_USER,
-            DB_PASS,
-            $options
-        );
+        // Hanya buat database jika server tegas menyatakan DB_NAME belum ada.
+        // Error koneksi, autentikasi, atau batas koneksi tidak boleh disamarkan
+        // dengan membuat database kosong baru.
+        if (!isMissingDatabaseError($firstError)) {
+            throw $firstError;
+        }
+
+        $server = connectSmartWasteDatabase(null, $options);
         $server->exec(
             'CREATE DATABASE IF NOT EXISTS `' . DB_NAME . '` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'
         );
-        $pdo = new PDO(
-            'mysql:host=' . DB_HOST . ';port=' . DB_PORT . ';dbname=' . DB_NAME . ';charset=utf8mb4',
-            DB_USER,
-            DB_PASS,
-            $options
-        );
+        $pdo = connectSmartWasteDatabase(DB_NAME, $options);
     }
 
     ensureSchemaInitialized($pdo);
     return $pdo;
+}
+
+/** @param array<int, mixed> $options */
+function connectSmartWasteDatabase(?string $databaseName, array $options): PDO
+{
+    $dsn = 'mysql:host=' . DB_HOST . ';port=' . DB_PORT . ';charset=utf8mb4';
+    if ($databaseName !== null) {
+        $dsn .= ';dbname=' . $databaseName;
+    }
+
+    // XAMPP kadang perlu sesaat untuk menyelesaikan crash recovery. Coba ulang
+    // sebentar untuk gangguan koneksi sementara, tanpa mengulang query tulis.
+    $retryDelays = [200_000, 500_000];
+    foreach ($retryDelays as $delay) {
+        try {
+            return new PDO($dsn, DB_USER, DB_PASS, $options);
+        } catch (PDOException $error) {
+            if (!isTransientDatabaseConnectionError($error)) {
+                throw $error;
+            }
+            usleep($delay);
+        }
+    }
+
+    return new PDO($dsn, DB_USER, DB_PASS, $options);
+}
+
+function databaseDriverErrorCode(PDOException $error): int
+{
+    return isset($error->errorInfo[1]) ? (int) $error->errorInfo[1] : 0;
+}
+
+function isMissingDatabaseError(PDOException $error): bool
+{
+    return databaseDriverErrorCode($error) === 1049;
+}
+
+function isTransientDatabaseConnectionError(PDOException $error): bool
+{
+    $sqlState = (string) ($error->errorInfo[0] ?? $error->getCode());
+    return str_starts_with($sqlState, '08')
+        || in_array(databaseDriverErrorCode($error), [1040, 1042, 2002, 2003, 2006, 2013, 2055], true);
 }
 
 function ensureSchemaInitialized(PDO $pdo): void
