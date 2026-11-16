@@ -2909,6 +2909,13 @@ try {
 
     fail('Endpoint tidak ditemukan.', 404);
 } catch (PDOException $error) {
+    if (databaseDriverErrorCode($error) === 1932) {
+        error_log('[Smart Waste API] InnoDB table is unavailable: ' . $error->getMessage());
+        respond([
+            'code' => 'database_integrity_issue',
+            'message' => 'Satu tabel database tidak dapat dibaca dan perlu dipulihkan dari salinan yang sehat.',
+        ], 503);
+    }
     if (isTransientDatabaseConnectionError($error)) {
         error_log('[Smart Waste API] Database temporarily unavailable: ' . $error->getMessage());
         header('Retry-After: 2');
