@@ -535,6 +535,76 @@ function deleteArchivedWorkerPhoto(string $storedPath, int $workerId): void
     @unlink($photoPath);
 }
 
+function permanentlyDeleteArchivedWasteReport(PDO $pdo, int $reportId): array
+{
+    $stmt = $pdo->prepare('SELECT foto, foto_bukti_lokasi FROM sampah WHERE id = ? LIMIT 1');
+    $stmt->execute([$reportId]);
+    $report = $stmt->fetch();
+    if (!$report) {
+        return [];
+    }
+
+    $photoPaths = [
+        (string) ($report['foto'] ?? ''),
+        (string) ($report['foto_bukti_lokasi'] ?? ''),
+    ];
+    $completionPhoto = $pdo->prepare(
+        'SELECT foto_bukti FROM konfirmasi_penyelesaian WHERE sampah_id = ? LIMIT 1'
+    );
+    $completionPhoto->execute([$reportId]);
+    $photoPaths[] = (string) ($completionPhoto->fetchColumn() ?: '');
+
+    foreach ([
+        'laporan_arsip',
+        'catatan_admin_arsip',
+        'petugas_laporan_arsip',
+        'riwayat_status',
+        'konfirmasi_penyelesaian',
+    ] as $table) {
+        $pdo->prepare("DELETE FROM $table WHERE sampah_id = ?")->execute([$reportId]);
+    }
+    $pdo->prepare('DELETE FROM sampah WHERE id = ?')->execute([$reportId]);
+
+    return array_values(array_unique(array_filter(
+        $photoPaths,
+        static fn(string $path): bool => trim($path) !== ''
+    )));
+}
+
+function deleteUnreferencedUploadedPhoto(PDO $pdo, string $storedPath): void
+{
+    $normalizedPath = str_replace('\\', '/', trim($storedPath));
+    if (!str_starts_with($normalizedPath, 'uploads/')) {
+        return;
+    }
+
+    $references = $pdo->prepare(
+        'SELECT 1 FROM sampah WHERE foto = ? OR foto_bukti_lokasi = ?
+         UNION ALL SELECT 1 FROM konfirmasi_penyelesaian WHERE foto_bukti = ?
+         UNION ALL SELECT 1 FROM permintaan_pengosongan WHERE foto_bukti = ?
+         UNION ALL SELECT 1 FROM users WHERE foto_profil = ?
+         UNION ALL SELECT 1 FROM petugas WHERE foto_profil_arsip = ?
+         LIMIT 1'
+    );
+    $references->execute(array_fill(0, 6, $normalizedPath));
+    if ($references->fetchColumn() !== false) {
+        return;
+    }
+
+    $filename = basename($normalizedPath);
+    $uploadDirectory = realpath(__DIR__ . DIRECTORY_SEPARATOR . 'uploads');
+    $photoPath = $uploadDirectory === false
+        ? false
+        : realpath($uploadDirectory . DIRECTORY_SEPARATOR . $filename);
+    if ($photoPath === false || dirname($photoPath) !== $uploadDirectory || !is_file($photoPath)) {
+        return;
+    }
+
+    if (!@unlink($photoPath)) {
+        error_log('[Smart Waste API] Gagal menghapus foto laporan yang sudah tidak direferensikan.');
+    }
+}
+
 function newReportCode(PDO $pdo): string
 {
     do {
@@ -2197,6 +2267,36 @@ try {
         respond(['message' => 'Laporan dipulihkan ke daftar utama.']);
     }
 
+    if ($root === 'admin' && $second === 'arsip-laporan' && $adminReportId !== null
+        && ($parts[3] ?? '') === 'permanen' && $method === 'DELETE') {
+        requireUser($pdo, 'admin');
+        $pdo->beginTransaction();
+        try {
+            $stmt = $pdo->prepare(
+                'SELECT s.id FROM sampah s
+                 INNER JOIN laporan_arsip la ON la.sampah_id = s.id
+                 WHERE s.id = ? FOR UPDATE'
+            );
+            $stmt->execute([$adminReportId]);
+            if (!$stmt->fetchColumn()) {
+                $pdo->rollBack();
+                fail('Laporan tidak ditemukan di Arsip.', 404);
+            }
+
+            $photoPaths = permanentlyDeleteArchivedWasteReport($pdo, $adminReportId);
+            $pdo->commit();
+        } catch (Throwable $error) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $error;
+        }
+        foreach ($photoPaths as $photoPath) {
+            deleteUnreferencedUploadedPhoto($pdo, $photoPath);
+        }
+        respond(['message' => 'Laporan, foto, bukti, dan riwayatnya dihapus permanen.']);
+    }
+
     if ($root === 'petugas' && $second === 'asisten' && $third === '' && $method === 'POST') {
         $user = requireUser($pdo, 'petugas');
         $worker = workerProfile($pdo, (int) $user['id']);
@@ -2464,6 +2564,62 @@ try {
             fail('Catatan tugas tidak ditemukan di Arsip Petugas.', 404);
         }
         respond(['message' => 'Catatan tugas dikembalikan ke riwayat aktif.']);
+    }
+
+    if ($root === 'petugas' && $second === 'arsip-tugas'
+        && ($taskId = intSegment($third)) !== null
+        && ($parts[3] ?? '') === 'permanen' && $method === 'DELETE') {
+        $user = requireUser($pdo, 'petugas');
+        $worker = workerProfile($pdo, (int) $user['id']);
+        if (!$worker) {
+            fail('Akun belum terhubung ke data petugas aktif. Hubungi admin.', 403);
+        }
+        $pdo->beginTransaction();
+        try {
+            $stmt = $pdo->prepare(
+                'SELECT s.id, s.status, s.petugas_id
+                 FROM sampah s
+                 INNER JOIN petugas_laporan_arsip pa
+                    ON pa.sampah_id = s.id AND pa.user_id = ?
+                 WHERE s.id = ? FOR UPDATE'
+            );
+            $stmt->execute([$user['id'], $taskId]);
+            $report = $stmt->fetch();
+            if (!$report) {
+                $pdo->rollBack();
+                fail('Tugas ini tidak ditemukan di Arsip Petugas.', 404);
+            }
+            if (!in_array((string) $report['status'], ['selesai', 'ditolak'], true)) {
+                $pdo->rollBack();
+                fail('Hanya tugas selesai atau ditolak yang bisa dihapus permanen.', 409);
+            }
+
+            $ownsReport = (int) ($report['petugas_id'] ?? 0) === (int) $worker['id'];
+            if (!$ownsReport) {
+                $decision = $pdo->prepare(
+                    'SELECT 1 FROM riwayat_status
+                     WHERE sampah_id = ? AND diubah_oleh = ? AND status = "ditolak" LIMIT 1'
+                );
+                $decision->execute([$taskId, $user['id']]);
+                $ownsReport = (bool) $decision->fetchColumn();
+            }
+            if (!$ownsReport) {
+                $pdo->rollBack();
+                fail('Riwayat ini bukan bagian dari pekerjaan akun Petugas tersebut.', 403);
+            }
+
+            $photoPaths = permanentlyDeleteArchivedWasteReport($pdo, $taskId);
+            $pdo->commit();
+        } catch (Throwable $error) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $error;
+        }
+        foreach ($photoPaths as $photoPath) {
+            deleteUnreferencedUploadedPhoto($pdo, $photoPath);
+        }
+        respond(['message' => 'Laporan, foto, bukti, dan riwayatnya dihapus permanen.']);
     }
 
     if ($root === 'petugas' && $second === 'tugas'
