@@ -106,7 +106,7 @@ function ensureSchemaInitialized(PDO $pdo): void
 {
     // Dashboard memuat banyak endpoint bersamaan; migrasi harus cukup sekali dan terserialisasi.
     // Naikkan versi ini saat menambahkan perubahan skema baru.
-    $schemaVersion = 2;
+    $schemaVersion = 3;
     $versionTable = 'smartwaste_schema_version';
     $tableCheck = $pdo->prepare(
         'SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?'
