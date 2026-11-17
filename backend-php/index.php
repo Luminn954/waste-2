@@ -963,6 +963,117 @@ function workerProfile(PDO $pdo, int $userId): ?array
     return $worker ?: null;
 }
 
+function assignReportToWorker(
+    PDO $pdo,
+    int $reportId,
+    int $workerId,
+    int $vehicleId,
+    int $tpaId,
+    int $actorId,
+    string $historyNote
+): array {
+    if ($vehicleId < 1 || $tpaId < 1) {
+        fail('Kendaraan dan TPA tujuan harus dipilih.', 422);
+    }
+
+    $pdo->beginTransaction();
+    try {
+        $stmt = $pdo->prepare('SELECT * FROM sampah WHERE id = ? FOR UPDATE');
+        $stmt->execute([$reportId]);
+        $report = $stmt->fetch();
+        if (!$report) {
+            $pdo->rollBack();
+            fail('Laporan tidak ditemukan.', 404);
+        }
+        if ($report['status'] !== 'menunggu_verifikasi') {
+            $pdo->rollBack();
+            fail('Hanya laporan menunggu verifikasi yang dapat ditugaskan.', 409);
+        }
+
+        $stmt = $pdo->prepare('SELECT id, user_id, status_aktif FROM petugas WHERE id = ? FOR UPDATE');
+        $stmt->execute([$workerId]);
+        $worker = $stmt->fetch();
+        if (!$worker || !(int) $worker['status_aktif'] || $worker['user_id'] === null) {
+            $pdo->rollBack();
+            fail('Pilih petugas aktif yang sudah memiliki akun aplikasi.', 422);
+        }
+        $stmt = $pdo->prepare('SELECT aktif FROM users WHERE id = ? AND role = "petugas" LIMIT 1');
+        $stmt->execute([$worker['user_id']]);
+        if (!(int) $stmt->fetchColumn()) {
+            $pdo->rollBack();
+            fail('Akun petugas sedang nonaktif.', 422);
+        }
+
+        $stmt = $pdo->prepare('SELECT kapasitas_kg, muatan_kg, kondisi FROM kendaraan WHERE id = ? FOR UPDATE');
+        $stmt->execute([$vehicleId]);
+        $vehicle = $stmt->fetch();
+        if (!$vehicle || strtolower((string) $vehicle['kondisi']) !== 'baik') {
+            $pdo->rollBack();
+            fail('Pilih kendaraan dengan kondisi baik.', 422);
+        }
+        $stmt = $pdo->prepare('SELECT kapasitas_ton, terisi_ton FROM tpa WHERE id = ? FOR UPDATE');
+        $stmt->execute([$tpaId]);
+        $facility = $stmt->fetch();
+        if (!$facility) {
+            $pdo->rollBack();
+            fail('Data TPA tidak ditemukan.', 422);
+        }
+
+        $weight = (float) $report['berat_kg'];
+        $stmt = $pdo->prepare('SELECT COALESCE(SUM(berat_kg), 0) FROM sampah WHERE kendaraan_id = ? AND status = "ditugaskan"');
+        $stmt->execute([$vehicleId]);
+        $reservedVehicleKg = (float) $stmt->fetchColumn();
+        if ((float) $vehicle['muatan_kg'] + $reservedVehicleKg + $weight > (float) $vehicle['kapasitas_kg']) {
+            $pdo->rollBack();
+            fail('Muatan kendaraan tidak cukup untuk laporan ini.', 409);
+        }
+        $pendingVehicleEmptying = $pdo->prepare(
+            "SELECT id FROM permintaan_pengosongan
+             WHERE jenis_target = 'kendaraan' AND target_id = ? AND status = 'menunggu' LIMIT 1 FOR UPDATE"
+        );
+        $pendingVehicleEmptying->execute([$vehicleId]);
+        if ($pendingVehicleEmptying->fetch()) {
+            $pdo->rollBack();
+            fail('Armada sedang menunggu persetujuan pengosongan Admin.', 409);
+        }
+
+        $stmt = $pdo->prepare('SELECT COALESCE(SUM(berat_kg), 0) FROM sampah WHERE tpa_id = ? AND status IN ("ditugaskan", "diangkut")');
+        $stmt->execute([$tpaId]);
+        $reservedTpaKg = (float) $stmt->fetchColumn();
+        if ((float) $facility['terisi_ton'] + (($reservedTpaKg + $weight) / 1000) > (float) $facility['kapasitas_ton']) {
+            $pdo->rollBack();
+            fail('Sisa kapasitas TPA tidak cukup untuk laporan ini.', 409);
+        }
+        $pendingTpaEmptying = $pdo->prepare(
+            "SELECT id FROM permintaan_pengosongan
+             WHERE jenis_target = 'tpa' AND target_id = ? AND status = 'menunggu' LIMIT 1 FOR UPDATE"
+        );
+        $pendingTpaEmptying->execute([$tpaId]);
+        if ($pendingTpaEmptying->fetch()) {
+            $pdo->rollBack();
+            fail('TPA sedang menunggu persetujuan pengosongan Admin.', 409);
+        }
+
+        $pdo->prepare(
+            'UPDATE sampah SET status = "ditugaskan", petugas_id = ?, kendaraan_id = ?, tpa_id = ?, ditugaskan_pada = NOW() WHERE id = ?'
+        )->execute([$workerId, $vehicleId, $tpaId, $reportId]);
+        $pdo->prepare('INSERT INTO riwayat_status (sampah_id, status, diubah_oleh, catatan) VALUES (?, "ditugaskan", ?, ?)')
+            ->execute([$reportId, $actorId, $historyNote]);
+        $pdo->commit();
+    } catch (Throwable $error) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $error;
+    }
+
+    $updated = findReport($pdo, $reportId);
+    if (!$updated) {
+        fail('Laporan tidak ditemukan setelah ditugaskan.', 404);
+    }
+    return $updated;
+}
+
 function intSegment(?string $value): ?int
 {
     return $value !== null && ctype_digit($value) ? (int) $value : null;
@@ -2987,104 +3098,39 @@ try {
         $workerId = (int) $assignedWorker['id'];
         $vehicleId = (int) ($payload['vehicle_id'] ?? $payload['kendaraan_id'] ?? 0);
         $tpaId = (int) ($payload['tpa_id'] ?? 0);
-        if ($vehicleId < 1 || $tpaId < 1) {
-            fail('Kendaraan dan TPA tujuan harus dipilih.', 422);
-        }
-        $pdo->beginTransaction();
-        try {
-            $stmt = $pdo->prepare('SELECT * FROM sampah WHERE id = ? FOR UPDATE');
-            $stmt->execute([$adminReportId]);
-            $report = $stmt->fetch();
-            if (!$report) {
-                $pdo->rollBack();
-                fail('Laporan tidak ditemukan.', 404);
-            }
-            if ($report['status'] !== 'menunggu_verifikasi') {
-                $pdo->rollBack();
-                fail('Hanya laporan menunggu verifikasi yang dapat ditugaskan.', 409);
-            }
-            $stmt = $pdo->prepare('SELECT id, user_id, status_aktif FROM petugas WHERE id = ? FOR UPDATE');
-            $stmt->execute([$workerId]);
-            $worker = $stmt->fetch();
-            if (!$worker || !(int) $worker['status_aktif'] || $worker['user_id'] === null) {
-                $pdo->rollBack();
-                fail('Pilih petugas aktif yang sudah memiliki akun aplikasi.', 422);
-            }
-            $stmt = $pdo->prepare('SELECT aktif FROM users WHERE id = ? AND role = "petugas" LIMIT 1');
-            $stmt->execute([$worker['user_id']]);
-            if (!(int) $stmt->fetchColumn()) {
-                $pdo->rollBack();
-                fail('Akun petugas sedang nonaktif.', 422);
-            }
-            $stmt = $pdo->prepare('SELECT kapasitas_kg, muatan_kg, kondisi FROM kendaraan WHERE id = ? FOR UPDATE');
-            $stmt->execute([$vehicleId]);
-            $vehicle = $stmt->fetch();
-            if (!$vehicle || strtolower((string) $vehicle['kondisi']) !== 'baik') {
-                $pdo->rollBack();
-                fail('Pilih kendaraan dengan kondisi baik.', 422);
-            }
-            $stmt = $pdo->prepare('SELECT kapasitas_ton, terisi_ton FROM tpa WHERE id = ? FOR UPDATE');
-            $stmt->execute([$tpaId]);
-            $facility = $stmt->fetch();
-            if (!$facility) {
-                $pdo->rollBack();
-                fail('Data TPA tidak ditemukan.', 422);
-            }
-            $weight = (float) $report['berat_kg'];
-            $stmt = $pdo->prepare('SELECT COALESCE(SUM(berat_kg), 0) FROM sampah WHERE kendaraan_id = ? AND status = "ditugaskan"');
-            $stmt->execute([$vehicleId]);
-            $reservedVehicleKg = (float) $stmt->fetchColumn();
-            if ((float) $vehicle['muatan_kg'] + $reservedVehicleKg + $weight > (float) $vehicle['kapasitas_kg']) {
-                $pdo->rollBack();
-                fail('Muatan kendaraan tidak cukup untuk laporan ini.', 409);
-            }
-            $pendingVehicleEmptying = $pdo->prepare(
-                "SELECT id FROM permintaan_pengosongan
-                 WHERE jenis_target = 'kendaraan' AND target_id = ? AND status = 'menunggu' LIMIT 1 FOR UPDATE"
-            );
-            $pendingVehicleEmptying->execute([$vehicleId]);
-            if ($pendingVehicleEmptying->fetch()) {
-                $pdo->rollBack();
-                fail('Armada sedang menunggu persetujuan pengosongan Admin.', 409);
-            }
-            $stmt = $pdo->prepare('SELECT COALESCE(SUM(berat_kg), 0) FROM sampah WHERE tpa_id = ? AND status IN ("ditugaskan", "diangkut")');
-            $stmt->execute([$tpaId]);
-            $reservedTpaKg = (float) $stmt->fetchColumn();
-            if ((float) $facility['terisi_ton'] + (($reservedTpaKg + $weight) / 1000) > (float) $facility['kapasitas_ton']) {
-                $pdo->rollBack();
-                fail('Sisa kapasitas TPA tidak cukup untuk laporan ini.', 409);
-            }
-            $pendingTpaEmptying = $pdo->prepare(
-                "SELECT id FROM permintaan_pengosongan
-                 WHERE jenis_target = 'tpa' AND target_id = ? AND status = 'menunggu' LIMIT 1 FOR UPDATE"
-            );
-            $pendingTpaEmptying->execute([$tpaId]);
-            if ($pendingTpaEmptying->fetch()) {
-                $pdo->rollBack();
-                fail('TPA sedang menunggu persetujuan pengosongan Admin.', 409);
-            }
-            $pdo->prepare(
-                'UPDATE sampah SET status = "ditugaskan", '
-                . 'petugas_id = ?, kendaraan_id = ?, tpa_id = ?, '
-                . 'ditugaskan_pada = NOW() WHERE id = ?'
-            )
-                ->execute([$workerId, $vehicleId, $tpaId, $adminReportId]);
-            $pdo->prepare('INSERT INTO riwayat_status (sampah_id, status, diubah_oleh, catatan) VALUES (?, "ditugaskan", ?, ?)')
-                ->execute([
-                    $adminReportId,
-                    $actor['id'],
-                    'Laporan diterima dan ditugaskan kepada petugas #' . $workerId
-                        . ', kendaraan #' . $vehicleId . ', TPA #' . $tpaId,
-                ]);
-            $pdo->commit();
-        } catch (Throwable $error) {
-            if ($pdo->inTransaction()) {
-                $pdo->rollBack();
-            }
-            throw $error;
-        }
-        $updated = findReport($pdo, $adminReportId);
+        $updated = assignReportToWorker(
+            $pdo,
+            $adminReportId,
+            $workerId,
+            $vehicleId,
+            $tpaId,
+            (int) $actor['id'],
+            'Laporan diterima dan ditugaskan kepada petugas #' . $workerId
+                . ', kendaraan #' . $vehicleId . ', TPA #' . $tpaId
+        );
         respond(['message' => 'Laporan diterima dan ditugaskan kepada petugas.', 'report' => reportRow($pdo, $updated, true)]);
+    }
+
+    if ($root === 'admin' && in_array($second, ['laporan', 'reports'], true)
+        && $adminReportId !== null && ($parts[3] ?? '') === 'tugaskan' && $method === 'PATCH') {
+        $actor = requireUser($pdo, 'admin');
+        $workerId = (int) ($payload['worker_id'] ?? $payload['petugas_id'] ?? 0);
+        $vehicleId = (int) ($payload['vehicle_id'] ?? $payload['kendaraan_id'] ?? 0);
+        $tpaId = (int) ($payload['tpa_id'] ?? 0);
+        if ($workerId < 1) {
+            fail('Pilih petugas yang akan menangani laporan.', 422);
+        }
+        $updated = assignReportToWorker(
+            $pdo,
+            $adminReportId,
+            $workerId,
+            $vehicleId,
+            $tpaId,
+            (int) $actor['id'],
+            'Laporan ditugaskan Admin kepada petugas #' . $workerId
+                . ', kendaraan #' . $vehicleId . ', TPA #' . $tpaId
+        );
+        respond(['message' => 'Laporan ditugaskan kepada petugas.', 'report' => reportRow($pdo, $updated, true)]);
     }
 
     if ($root === 'admin' && in_array($second, ['laporan', 'reports'], true) && $adminReportId !== null && $method === 'GET') {

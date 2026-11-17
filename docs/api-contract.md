@@ -27,6 +27,7 @@ Semua respons error berbentuk JSON dengan `message` dan HTTP status yang sesuai.
 | `GET /admin/dashboard` atau `/dashboard` | Admin | Ringkasan operasional |
 | `GET /admin/laporan` | Admin | Antrean dan daftar laporan; mendukung `status` dan `q` |
 | `GET /admin/laporan/{id}` | Admin | Detail laporan |
+| `PATCH /admin/laporan/{id}/tugaskan` | Admin | Tugaskan laporan baru ke petugas aktif, kendaraan, dan TPA setelah validasi kapasitas |
 | `GET /admin/petugas` | Admin | Daftar petugas |
 | `POST /admin/petugas` atau `/admin/akun` | Admin | Membuat akun Petugas dengan username dan kata sandi minimal 8 karakter |
 | `PATCH /admin/petugas/{id}` | Admin | Memperbarui status/profil petugas |
