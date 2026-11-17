@@ -313,7 +313,7 @@ function reportQuery(
     }
     $sql =
         'SELECT s.*, u.nama AS nama_user, u.username AS username_user,
-                p.nama AS nama_petugas, k.plat_nomor, t.nama AS nama_tpa,
+                COALESCE(p.nama, s.petugas_nama_snapshot) AS nama_petugas, k.plat_nomor, t.nama AS nama_tpa,
                 kp.status AS completion_status, kp.foto_bukti AS completion_photo,
                 kp.dikirim_pada AS completion_submitted_at,
                 kp.catatan_admin AS completion_review_note
@@ -355,7 +355,7 @@ function adminNoteRows(PDO $pdo, bool $archived, string $search = ''): array
     }
 
     $sql = "SELECT s.*, u.nama AS nama_user, u.username AS username_user,
-                   p.nama AS nama_petugas, k.plat_nomor, t.nama AS nama_tpa,
+                   COALESCE(p.nama, s.petugas_nama_snapshot) AS nama_petugas, k.plat_nomor, t.nama AS nama_tpa,
                    kp.status AS completion_status, kp.foto_bukti AS completion_photo,
                    kp.dikirim_pada AS completion_submitted_at,
                    kp.catatan_admin AS completion_review_note,
@@ -449,7 +449,7 @@ function findReport(PDO $pdo, int $id): ?array
 {
     $stmt = $pdo->prepare(
         'SELECT s.*, u.nama AS nama_user, u.username AS username_user,
-                p.nama AS nama_petugas, k.plat_nomor, t.nama AS nama_tpa,
+                COALESCE(p.nama, s.petugas_nama_snapshot) AS nama_petugas, k.plat_nomor, t.nama AS nama_tpa,
                 kp.status AS completion_status, kp.foto_bukti AS completion_photo,
                 kp.dikirim_pada AS completion_submitted_at,
                 kp.catatan_admin AS completion_review_note
@@ -510,6 +510,29 @@ function saveUploadedPhoto(string $prefix = 'laporan'): string
         fail('Foto tidak dapat disimpan.', 500);
     }
     return 'uploads/' . $filename;
+}
+
+function deleteArchivedWorkerPhoto(string $storedPath, int $workerId): void
+{
+    $normalizedPath = str_replace('\\', '/', trim($storedPath));
+    if (!str_starts_with($normalizedPath, 'uploads/')) {
+        return;
+    }
+
+    $filename = basename($normalizedPath);
+    if (!str_starts_with($filename, 'petugas_' . $workerId . '_')) {
+        return;
+    }
+
+    $uploadDirectory = realpath(__DIR__ . DIRECTORY_SEPARATOR . 'uploads');
+    $photoPath = $uploadDirectory === false
+        ? false
+        : realpath($uploadDirectory . DIRECTORY_SEPARATOR . $filename);
+    if ($photoPath === false || dirname($photoPath) !== $uploadDirectory || !is_file($photoPath)) {
+        return;
+    }
+
+    @unlink($photoPath);
 }
 
 function newReportCode(PDO $pdo): string
@@ -668,7 +691,9 @@ function adminWorkerRows(PDO $pdo): array
 {
     $rows = $pdo->query(
         "SELECT p.id, p.user_id, p.nama, p.zona_tugas, p.total_ambil, p.status_aktif,
-                u.username, u.foto_profil, u.aktif AS account_active,
+                p.diarsipkan_pada, p.foto_profil_arsip,
+                u.username, COALESCE(u.foto_profil, p.foto_profil_arsip) AS foto_profil,
+                u.aktif AS account_active,
                 (SELECT COUNT(*) FROM sampah s
                  WHERE s.petugas_id = p.id AND s.status = 'selesai') AS completed_tasks,
                 (SELECT COALESCE(SUM(s.berat_kg), 0) FROM sampah s
@@ -697,6 +722,8 @@ function adminWorkerRows(PDO $pdo): array
         'username' => (string) ($row['username'] ?? ''),
         'profile_photo' => photoUrl($row['foto_profil'] ?? null),
         'has_account' => $row['user_id'] !== null,
+        'is_archived' => $row['diarsipkan_pada'] !== null,
+        'archived_at' => $row['diarsipkan_pada'],
     ], $rows);
 }
 
@@ -1344,7 +1371,7 @@ try {
             "SELECT kp.id AS confirmation_id, kp.foto_bukti AS proof_photo,
                     kp.catatan_petugas AS worker_note, kp.dikirim_pada AS submitted_at,
                     s.*, u.nama AS nama_user, u.username AS username_user,
-                    p.nama AS nama_petugas, k.plat_nomor, t.nama AS nama_tpa,
+                    COALESCE(p.nama, kp.petugas_nama_snapshot) AS nama_petugas, k.plat_nomor, t.nama AS nama_tpa,
                     kp.status AS completion_status, kp.foto_bukti AS completion_photo,
                     kp.dikirim_pada AS completion_submitted_at,
                     kp.catatan_admin AS completion_review_note
@@ -1469,7 +1496,7 @@ try {
             "SELECT kp.id AS confirmation_id, kp.catatan_petugas AS worker_note,
                     kp.dikirim_pada AS submitted_at, s.*,
                     u.nama AS nama_user, u.username AS username_user,
-                    p.nama AS nama_petugas, k.plat_nomor, t.nama AS nama_tpa,
+                    COALESCE(p.nama, kp.petugas_nama_snapshot) AS nama_petugas, k.plat_nomor, t.nama AS nama_tpa,
                     kp.status AS completion_status, kp.foto_bukti AS completion_photo,
                     kp.dikirim_pada AS completion_submitted_at,
                     kp.catatan_admin AS completion_review_note
@@ -1549,6 +1576,103 @@ try {
     }
 
     $staffId = $root === 'admin' && $second === 'petugas' ? intSegment($third) : null;
+    if ($staffId !== null && ($parts[3] ?? '') === 'arsip' && $method === 'POST') {
+        requireUser($pdo, 'admin');
+        $pdo->beginTransaction();
+        try {
+            $stmt = $pdo->prepare('SELECT id, user_id, diarsipkan_pada FROM petugas WHERE id = ? FOR UPDATE');
+            $stmt->execute([$staffId]);
+            $worker = $stmt->fetch();
+            if (!$worker) {
+                $pdo->rollBack();
+                fail('Data petugas tidak ditemukan.', 404);
+            }
+            if ($worker['user_id'] !== null) {
+                $pdo->rollBack();
+                fail('Hapus akun petugas terlebih dahulu sebelum mengarsipkan profil.', 409);
+            }
+            if ($worker['diarsipkan_pada'] !== null) {
+                $pdo->rollBack();
+                fail('Profil petugas sudah ada di Arsip.', 409);
+            }
+            $openTasks = $pdo->prepare(
+                "SELECT COUNT(*) FROM sampah WHERE petugas_id = ? AND status IN ('ditugaskan', 'diangkut')"
+            );
+            $openTasks->execute([$staffId]);
+            if ((int) $openTasks->fetchColumn() > 0) {
+                $pdo->rollBack();
+                fail('Petugas masih memiliki tugas aktif. Selesaikan atau alihkan terlebih dahulu.', 409);
+            }
+            $pdo->prepare('UPDATE petugas SET status_aktif = 0, diarsipkan_pada = NOW() WHERE id = ?')
+                ->execute([$staffId]);
+            $pdo->commit();
+        } catch (Throwable $error) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $error;
+        }
+        respond([
+            'message' => 'Profil petugas dipindahkan ke Arsip. Riwayat kerja tetap tersimpan.',
+            'workers' => adminWorkerRows($pdo),
+        ]);
+    }
+    if ($staffId !== null && ($parts[3] ?? '') === 'permanen' && $method === 'DELETE') {
+        requireUser($pdo, 'admin');
+        $pdo->beginTransaction();
+        try {
+            $stmt = $pdo->prepare(
+                'SELECT id, user_id, nama, diarsipkan_pada, foto_profil_arsip FROM petugas WHERE id = ? FOR UPDATE'
+            );
+            $stmt->execute([$staffId]);
+            $worker = $stmt->fetch();
+            if (!$worker) {
+                $pdo->rollBack();
+                fail('Data petugas tidak ditemukan.', 404);
+            }
+            if ($worker['user_id'] !== null) {
+                $pdo->rollBack();
+                fail('Akun petugas masih terhubung. Hapus akun terlebih dahulu.', 409);
+            }
+            if ($worker['diarsipkan_pada'] === null) {
+                $pdo->rollBack();
+                fail('Arsipkan profil sebelum menghapusnya permanen.', 409);
+            }
+            $openTasks = $pdo->prepare(
+                "SELECT COUNT(*) FROM sampah WHERE petugas_id = ? AND status IN ('ditugaskan', 'diangkut')"
+            );
+            $openTasks->execute([$staffId]);
+            if ((int) $openTasks->fetchColumn() > 0) {
+                $pdo->rollBack();
+                fail('Petugas masih memiliki tugas aktif. Selesaikan atau alihkan terlebih dahulu.', 409);
+            }
+
+            $snapshotName = (string) $worker['nama'];
+            $pdo->prepare(
+                "UPDATE sampah
+                 SET petugas_nama_snapshot = COALESCE(NULLIF(petugas_nama_snapshot, ''), ?), petugas_id = NULL
+                 WHERE petugas_id = ?"
+            )->execute([$snapshotName, $staffId]);
+            $pdo->prepare(
+                "UPDATE konfirmasi_penyelesaian
+                 SET petugas_nama_snapshot = COALESCE(NULLIF(petugas_nama_snapshot, ''), ?), petugas_id = NULL
+                 WHERE petugas_id = ?"
+            )->execute([$snapshotName, $staffId]);
+            $photoToDelete = (string) ($worker['foto_profil_arsip'] ?? '');
+            $pdo->prepare('DELETE FROM petugas WHERE id = ?')->execute([$staffId]);
+            $pdo->commit();
+        } catch (Throwable $error) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $error;
+        }
+        deleteArchivedWorkerPhoto($photoToDelete, $staffId);
+        respond([
+            'message' => 'Profil petugas dihapus permanen. Laporan dan bukti kerja tetap tersimpan.',
+            'workers' => adminWorkerRows($pdo),
+        ]);
+    }
     if ($staffId !== null && ($parts[3] ?? '') === 'foto-profil' && $method === 'POST') {
         requireUser($pdo, 'admin');
         $stmt = $pdo->prepare(
@@ -1577,7 +1701,7 @@ try {
         $pdo->beginTransaction();
         try {
             $stmt = $pdo->prepare(
-                'SELECT p.id, p.user_id, u.role FROM petugas p '
+                'SELECT p.id, p.user_id, u.role, u.foto_profil FROM petugas p '
                 . 'LEFT JOIN users u ON u.id = p.user_id WHERE p.id = ? FOR UPDATE'
             );
             $stmt->execute([$staffId]);
@@ -1628,7 +1752,9 @@ try {
             }
             $userId = (int) $worker['user_id'];
             $pdo->prepare('DELETE FROM auth_tokens WHERE user_id = ?')->execute([$userId]);
-            $pdo->prepare('UPDATE petugas SET user_id = NULL, status_aktif = 0 WHERE id = ?')->execute([$staffId]);
+            $pdo->prepare(
+                'UPDATE petugas SET user_id = NULL, status_aktif = 0, foto_profil_arsip = ? WHERE id = ?'
+            )->execute([$worker['foto_profil'] ?? null, $staffId]);
             $pdo->prepare('DELETE FROM users WHERE id = ? AND role = "petugas"')->execute([$userId]);
             $pdo->commit();
         } catch (Throwable $error) {
@@ -2020,7 +2146,7 @@ try {
         $rows = $pdo->query(
             "SELECT la.diarsipkan_pada AS archived_at, au.nama AS archived_by,
                     s.*, u.nama AS nama_user, u.username AS username_user,
-                    p.nama AS nama_petugas, k.plat_nomor, t.nama AS nama_tpa,
+                    COALESCE(p.nama, s.petugas_nama_snapshot) AS nama_petugas, k.plat_nomor, t.nama AS nama_tpa,
                     kp.status AS completion_status, kp.foto_bukti AS completion_photo,
                     kp.dikirim_pada AS completion_submitted_at,
                     kp.catatan_admin AS completion_review_note

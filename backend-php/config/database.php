@@ -106,7 +106,7 @@ function ensureSchemaInitialized(PDO $pdo): void
 {
     // Dashboard memuat banyak endpoint bersamaan; migrasi harus cukup sekali dan terserialisasi.
     // Naikkan versi ini saat menambahkan perubahan skema baru.
-    $schemaVersion = 1;
+    $schemaVersion = 2;
     $versionTable = 'smartwaste_schema_version';
     $tableCheck = $pdo->prepare(
         'SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?'
@@ -211,6 +211,7 @@ function initialiseSchema(PDO $pdo): void
             sudah_diambil TINYINT(1) NOT NULL DEFAULT 0,
             id_user BIGINT UNSIGNED NULL,
             petugas_id BIGINT UNSIGNED NULL,
+            petugas_nama_snapshot VARCHAR(120) NULL,
             kendaraan_id BIGINT UNSIGNED NULL,
             tpa_id BIGINT UNSIGNED NULL,
             dibuat_pada DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -258,6 +259,8 @@ function initialiseSchema(PDO $pdo): void
             zona_tugas VARCHAR(120) NOT NULL DEFAULT '',
             total_ambil INT NOT NULL DEFAULT 0,
             status_aktif TINYINT(1) NOT NULL DEFAULT 1,
+            diarsipkan_pada DATETIME NULL,
+            foto_profil_arsip VARCHAR(255) NULL,
             dibuat_pada DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
         "CREATE TABLE IF NOT EXISTS kendaraan (
@@ -331,7 +334,8 @@ function initialiseSchema(PDO $pdo): void
         "CREATE TABLE IF NOT EXISTS konfirmasi_penyelesaian (
             id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             sampah_id BIGINT UNSIGNED NOT NULL UNIQUE,
-            petugas_id BIGINT UNSIGNED NOT NULL,
+            petugas_id BIGINT UNSIGNED NULL,
+            petugas_nama_snapshot VARCHAR(120) NULL,
             foto_bukti VARCHAR(255) NOT NULL,
             catatan_petugas VARCHAR(500) NOT NULL DEFAULT '',
             status VARCHAR(30) NOT NULL DEFAULT 'menunggu',
@@ -360,6 +364,7 @@ function initialiseSchema(PDO $pdo): void
     addColumnIfMissing($pdo, 'sampah', 'tanggal_lapor', "DATE NULL AFTER deskripsi");
     addColumnIfMissing($pdo, 'sampah', 'tingkat_bahaya', "VARCHAR(20) NOT NULL DEFAULT 'RENDAH'");
     addColumnIfMissing($pdo, 'sampah', 'petugas_id', 'BIGINT UNSIGNED NULL');
+    addColumnIfMissing($pdo, 'sampah', 'petugas_nama_snapshot', 'VARCHAR(120) NULL AFTER petugas_id');
     addColumnIfMissing($pdo, 'sampah', 'kendaraan_id', 'BIGINT UNSIGNED NULL');
     addColumnIfMissing($pdo, 'sampah', 'tpa_id', 'BIGINT UNSIGNED NULL');
     addColumnIfMissing($pdo, 'sampah', 'ditugaskan_pada', 'DATETIME NULL');
@@ -375,6 +380,10 @@ function initialiseSchema(PDO $pdo): void
     addColumnIfMissing($pdo, 'petugas', 'zona_tugas', "VARCHAR(120) NOT NULL DEFAULT ''");
     addColumnIfMissing($pdo, 'petugas', 'total_ambil', 'INT NOT NULL DEFAULT 0');
     addColumnIfMissing($pdo, 'petugas', 'status_aktif', 'TINYINT(1) NOT NULL DEFAULT 1');
+    addColumnIfMissing($pdo, 'petugas', 'diarsipkan_pada', 'DATETIME NULL AFTER status_aktif');
+    addColumnIfMissing($pdo, 'petugas', 'foto_profil_arsip', 'VARCHAR(255) NULL AFTER diarsipkan_pada');
+    addColumnIfMissing($pdo, 'konfirmasi_penyelesaian', 'petugas_nama_snapshot', 'VARCHAR(120) NULL AFTER petugas_id');
+    widenColumnIfNeeded($pdo, 'konfirmasi_penyelesaian', 'petugas_id', 'BIGINT UNSIGNED NULL');
     ensureUniqueIndex($pdo, 'petugas', 'uq_petugas_user_id', 'user_id');
     widenColumnIfNeeded($pdo, 'sampah', 'status', "VARCHAR(30) NOT NULL DEFAULT 'menunggu_verifikasi'");
     widenColumnIfNeeded($pdo, 'riwayat_status', 'status', "VARCHAR(30) NOT NULL");
@@ -417,7 +426,7 @@ function widenColumnIfNeeded(PDO $pdo, string $table, string $column, string $de
 
 function columnExists(PDO $pdo, string $table, string $column): bool
 {
-    $allowedTables = ['users', 'sampah', 'riwayat_status', 'petugas', 'kendaraan', 'tpa'];
+    $allowedTables = ['users', 'sampah', 'riwayat_status', 'petugas', 'kendaraan', 'tpa', 'konfirmasi_penyelesaian'];
     if (!in_array($table, $allowedTables, true)) {
         return false;
     }

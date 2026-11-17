@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS sampah (
   sudah_diambil TINYINT(1) NOT NULL DEFAULT 0,
   id_user BIGINT UNSIGNED NULL,
   petugas_id BIGINT UNSIGNED NULL,
+  petugas_nama_snapshot VARCHAR(120) NULL,
   kendaraan_id BIGINT UNSIGNED NULL,
   tpa_id BIGINT UNSIGNED NULL,
   dibuat_pada DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -103,6 +104,8 @@ CREATE TABLE IF NOT EXISTS petugas (
   zona_tugas VARCHAR(120) NOT NULL DEFAULT '',
   total_ambil INT NOT NULL DEFAULT 0,
   status_aktif TINYINT(1) NOT NULL DEFAULT 1,
+  diarsipkan_pada DATETIME NULL,
+  foto_profil_arsip VARCHAR(255) NULL,
   dibuat_pada DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -156,7 +159,8 @@ CREATE TABLE IF NOT EXISTS laporan_harian (
 CREATE TABLE IF NOT EXISTS konfirmasi_penyelesaian (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   sampah_id BIGINT UNSIGNED NOT NULL UNIQUE,
-  petugas_id BIGINT UNSIGNED NOT NULL,
+  petugas_id BIGINT UNSIGNED NULL,
+  petugas_nama_snapshot VARCHAR(120) NULL,
   foto_bukti VARCHAR(255) NOT NULL,
   catatan_petugas VARCHAR(500) NOT NULL DEFAULT '',
   status VARCHAR(30) NOT NULL DEFAULT 'menunggu',
