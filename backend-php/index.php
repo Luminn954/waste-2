@@ -1315,7 +1315,7 @@ try {
         }
         $token = bin2hex(random_bytes(32));
         $expires = date('Y-m-d H:i:s', time() + 60 * 60 * 24 * 7);
-        $pdo->prepare('DELETE FROM auth_tokens WHERE user_id = ? OR expires_at <= NOW()')->execute([$user['id']]);
+        $pdo->prepare('DELETE FROM auth_tokens WHERE expires_at <= NOW()')->execute();
         $pdo->prepare(
             'INSERT INTO auth_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)'
         )->execute([$user['id'], hash('sha256', $token), $expires]);
