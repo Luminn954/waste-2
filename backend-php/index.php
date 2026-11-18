@@ -1412,8 +1412,9 @@ try {
     }
 
     if ($root === 'me' && $second === 'foto-profil' && $method === 'POST') {
-        $user = requireUser($pdo, 'admin');
-        $photo = saveUploadedPhoto('admin_' . (int) $user['id']);
+        $user = requireUser($pdo);
+        $photoPrefix = $user['role'] === 'admin' ? 'admin_' : 'profile_';
+        $photo = saveUploadedPhoto($photoPrefix . (int) $user['id']);
         if ($photo === '') {
             fail('Pilih foto profil terlebih dahulu.', 422);
         }
@@ -1427,7 +1428,7 @@ try {
             fail('Profil admin tidak ditemukan setelah diperbarui.', 404);
         }
         respond([
-            'message' => 'Foto profil admin berhasil diperbarui.',
+            'message' => 'Foto profil berhasil diperbarui.',
             'user' => publicUser($updatedUser),
         ]);
     }
