@@ -1425,7 +1425,7 @@ try {
         $fresh->execute([$user['id']]);
         $updatedUser = $fresh->fetch();
         if (!$updatedUser) {
-            fail('Profil admin tidak ditemukan setelah diperbarui.', 404);
+            fail('Akun tidak ditemukan setelah foto profil diperbarui.', 404);
         }
         respond([
             'message' => 'Foto profil berhasil diperbarui.',
