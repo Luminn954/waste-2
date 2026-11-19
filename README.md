@@ -10,17 +10,18 @@ Kode dipisah berdasarkan peran: `frontend/` untuk website, `backend-php/` untuk 
 
 ## Menjalankan di Windows
 
-1. Buka XAMPP, nyalakan **Apache** dan **MySQL**.
-2. Jalankan `START-Waste2.bat`, atau buka `http://localhost:8080/Waste2/frontend/index.html`.
-3. Default XAMPP memakai MySQL `127.0.0.1:3306`, database `smart_waste`, user `root`, password kosong. Database dan schema bootstrap dibuat saat API pertama kali dipanggil.
-   Untuk konfigurasi lokal, salin `backend-php/.env.example` menjadi `backend-php/.env`; PHP akan membaca file itu, sementara environment Windows yang sudah ada tetap lebih diprioritaskan. `.env` diabaikan Git dan ditolak oleh Apache.
-4. Untuk Android emulator, biarkan Apache/MySQL tetap aktif. Emulator memakai `10.0.2.2` sebagai alamat localhost laptop.
-5. Untuk membuka proyek Android dengan workaround Gradle Windows, jalankan `OPEN-AndroidStudio-SmartWaste.bat` dari folder proyek Android. Script hanya mengatur `TEMP`/`TMP` ke `C:\Temp` untuk proses Android Studio itu; pengaturan Windows tidak diubah.
+1. Jalankan `START-Waste2.bat`. Skrip menyalakan database Smart Waste pada port `3307` dan Apache pada port `8080` jika belum aktif, lalu membuka website.
+2. Website: `http://localhost:8080/Waste2/frontend/index.html`.
+3. Konfigurasi lokal `backend-php/.env` mengarahkan PHP ke database `smart_waste` pada port `3307`. Website dan Android mengirim seluruh operasi lewat REST API yang sama.
+4. phpMyAdmin: `http://localhost:8080/phpmyadmin/`; koneksi XAMPP lokal diarahkan ke server database Smart Waste pada port `3307`.
+5. Untuk Android emulator, biarkan database dan Apache aktif. Emulator memakai `10.0.2.2` sebagai alamat localhost laptop.
+6. Untuk membuka proyek Android dengan workaround Gradle Windows, jalankan `OPEN-AndroidStudio-SmartWaste.bat` dari folder proyek Android. Script hanya mengatur `TEMP`/`TMP` ke `C:\Temp` untuk proses Android Studio itu; pengaturan Windows tidak diubah.
 
 Folder web sudah dipasang sebagai junction:
 
 ```text
-C:\xampp\htdocs\Waste2  ->  folder Waste 2 ini
+C:\xampp\htdocs\Waste2       ->  repository Waste 2
+C:\xampp\htdocs\SafarasWeb   ->  Documents\Safaras Web
 ```
 
 Endpoint pemeriksaan:
@@ -29,7 +30,9 @@ Endpoint pemeriksaan:
 - Health API: `http://localhost:8080/Waste2/backend-php/index.php/health`
 - phpMyAdmin: `http://localhost:8080/phpmyadmin/`
 
-API entry point sengaja tetap di `backend-php/index.php` supaya website dan Android tidak kehilangan alamat server saat file internal dirapikan. Schema untuk inspeksi/import manual berada di `backend-php/database/schema.sql`; runtime memakai migrasi idempoten di `backend-php/config/database.php` agar data lama tetap dipertahankan.
+API entry point tetap di `backend-php/index.php`, sehingga website dan Android memakai alamat server yang sama. Skema terbaru memiliki 19 tabel dan ada di `backend-php/database/schema.sql`; ERD serta relasi logis ada di `docs/database-erd.md`. Runtime memakai migrasi idempoten versi 3 di `backend-php/config/database.php`.
+
+Data akun, laporan, status, penugasan, arsip, dan operasional tersimpan di database bersama `smart_waste`. Foto disimpan sebagai berkas di `backend-php/uploads/`; lokasi berkasnya tersimpan di database agar unggahan tetap efisien dan bisa diakses kedua aplikasi.
 
 ## Akun dan login
 
@@ -77,15 +80,11 @@ Pengaturan koneksi database XAMPP dapat memakai `SMARTWASTE_DB_HOST`, `SMARTWAST
 - Melihat kinerja serta mengarsipkan dan memulihkan tugas.
 - Tidak dapat membuka menu administrasi atau mengubah penugasan petugas lain.
 
-## Struktur database utama
+## Struktur database
 
-- `users` — akun user dan role.
-- `admin` — profil admin yang tersinkron dengan akun admin.
-- `sampah` — laporan sampah user.
-- `riwayat_status` — jejak perubahan status oleh admin.
-- `auth_tokens` — sesi login API.
+Database terdiri dari 19 tabel: akun dan autentikasi (`users`, `admin`, `petugas`, `auth_tokens`, `auth_login_attempts`, `google_login_challenges`); laporan (`sampah`, `riwayat_status`, `konfirmasi_penyelesaian`, `laporan_arsip`, `catatan_admin_arsip`, `petugas_laporan_arsip`, `laporan_harian`); serta operasional (`kendaraan`, `kendaraan_perbaikan`, `kendaraan_perbaikan_riwayat`, `tpa`, `permintaan_pengosongan`, `smartwaste_schema_version`). Lihat ERD untuk detail kolom dan hubungan logis.
 
-Tabel pendukung seperti `petugas`, `kendaraan`, `tpa`, dan `laporan_harian` tetap dipertahankan supaya database XAMPP lama tidak kehilangan data saat migrasi. Setiap perubahan skema baru harus ditambahkan ke bootstrap runtime dan referensi `backend-php/database/schema.sql`; untuk data yang sudah dipakai, gunakan migrasi yang bisa dijalankan berulang tanpa menghapus data.
+Tabel memakai indeks utama dan unik yang diperlukan aplikasi. Relasi bisnis didokumentasikan di ERD dan phpMyAdmin Designer; migrasi tidak menambahkan constraint foreign key yang dapat mengganggu pengarsipan dan penghapusan permanen.
 
 ## Android lewat Wi-Fi yang sama
 

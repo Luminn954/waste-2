@@ -5,7 +5,7 @@ require_once __DIR__ . '/environment.php';
 
 date_default_timezone_set('Asia/Jakarta');
 
-// Default tetap cocok untuk XAMPP lokal; deployment dapat mengatur environment.
+// Server Smart Waste lokal memakai port 3307; deployment dapat mengatur environment.
 function smartWasteEnv(string $name, string $fallback): string
 {
     $value = getenv($name);
@@ -13,7 +13,7 @@ function smartWasteEnv(string $name, string $fallback): string
 }
 
 define('DB_HOST', smartWasteEnv('SMARTWASTE_DB_HOST', '127.0.0.1'));
-define('DB_PORT', smartWasteEnv('SMARTWASTE_DB_PORT', '3306'));
+define('DB_PORT', smartWasteEnv('SMARTWASTE_DB_PORT', '3307'));
 define('DB_NAME', smartWasteEnv('SMARTWASTE_DB_NAME', 'smart_waste'));
 define('DB_USER', smartWasteEnv('SMARTWASTE_DB_USER', 'root'));
 define('DB_PASS', smartWasteEnv('SMARTWASTE_DB_PASSWORD', ''));
