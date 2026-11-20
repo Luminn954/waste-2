@@ -17,6 +17,7 @@ define('DB_PORT', smartWasteEnv('SMARTWASTE_DB_PORT', '3307'));
 define('DB_NAME', smartWasteEnv('SMARTWASTE_DB_NAME', 'smart_waste'));
 define('DB_USER', smartWasteEnv('SMARTWASTE_DB_USER', 'root'));
 define('DB_PASS', smartWasteEnv('SMARTWASTE_DB_PASSWORD', ''));
+define('DB_EXPECTED_DATA_DIR', smartWasteEnv('SMARTWASTE_DB_EXPECTED_DATA_DIR', ''));
 
 if (!preg_match('/\\A[A-Za-z0-9_]+\\z/', DB_NAME)) {
     throw new RuntimeException('SMARTWASTE_DB_NAME hanya boleh berisi huruf, angka, dan underscore.');
@@ -50,14 +51,39 @@ function db(): PDO
         }
 
         $server = connectSmartWasteDatabase(null, $options);
+        assertExpectedDatabaseDataDir($server);
         $server->exec(
             'CREATE DATABASE IF NOT EXISTS `' . DB_NAME . '` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'
         );
         $pdo = connectSmartWasteDatabase(DB_NAME, $options);
     }
 
+    assertExpectedDatabaseDataDir($pdo);
     ensureSchemaInitialized($pdo);
     return $pdo;
+}
+
+function assertExpectedDatabaseDataDir(PDO $pdo): void
+{
+    if (DB_EXPECTED_DATA_DIR === '') {
+        return;
+    }
+
+    $actualDataDir = (string) $pdo->query('SELECT @@datadir')->fetchColumn();
+    $normalize = static function (string $path): string {
+        $resolved = realpath($path);
+        $normalized = str_replace('\\', '/', $resolved !== false ? $resolved : trim($path));
+        $normalized = preg_replace('~/+~', '/', $normalized) ?? $normalized;
+        $normalized = rtrim($normalized, '/') . '/';
+
+        return DIRECTORY_SEPARATOR === '\\' ? strtolower($normalized) : $normalized;
+    };
+
+    if ($normalize($actualDataDir) !== $normalize(DB_EXPECTED_DATA_DIR)) {
+        throw new RuntimeException(
+            'Koneksi database ditolak: folder data MySQL tidak cocok dengan server Smart Waste yang aktif.'
+        );
+    }
 }
 
 /** @param array<int, mixed> $options */
